@@ -36,7 +36,7 @@ src/agent/
 | `src/agent/runtime.py` | the connection and its lifecycle: socket, reconnect, checkpoint, the guard |
 | `src/agent/lib/plow.py` | the Plow HTTP contract: identity, chats, ticket, history, send, inference |
 | `src/agent/lib/router.py` | routing: first match wins |
-| `src/agent/commands/` | the replies — one file per command (echo, help, story) |
+| `src/agent/commands/` | the replies — one file per command (agenda, echo, help, story, time) |
 | `src/agent/config.py` | every environment setting, in one place |
 | `Dockerfile` | `python:3.11-slim`, runs `python -m agent` as PID 1 |
 | `requirements.txt` | `aiohttp` (HTTP **and** WebSocket in one dep) |
@@ -188,6 +188,7 @@ Text the number `plow-agents lines` shows for your line. What you get back:
 | `help` | the command list |
 | `what time is it` | UTC, local, and Berlin / London / Wellington / San Francisco / Boston — plus a Spin Doctors wink |
 | `time in london`, `tell me the time`, `time?` | the same clock |
+| `what's next`, `my calendar` | the next few calendar items, read on your **Mac** through Latch — approve it there the first time |
 | `tell me a story about a penguin` | a short story, generated with Plow inference |
 | `i want a bedtime tale about a lion` | …same, any animal |
 
@@ -219,6 +220,7 @@ environment variables from `./plow-credentials`.
 | `PLOW_HOME_CHANNEL` | no | a `cht_…` home chat; otherwise the agent picks its solo owner DM |
 | `PLOW_MODEL` | no | inference model id (default `anthropic/claude-sonnet-5`) — any id from the allowlist, see [Inference](#inference-the-model) |
 | `TZ` | no | IANA timezone for the `time` command's **Local** row (e.g. `America/New_York`); unset uses the container's own local time |
+| `PLOW_MCP_URL` | no | Latch relay URL; normally learned from `GET /v1/agents/me`, so set it only to override |
 | `AGENT_STATE_DIR` | no | where the checkpoint file lives (default `./plow-state`; compose sets `/data`) |
 | `LOG_LEVEL` | no | `DEBUG`, `INFO` (default), `WARNING` or `ERROR` — see [Logs](#logs) |
 | `PLOW_ALLOWED_HANDLES` | no | comma-separated handles besides the owner allowed to invoke the agent — see [Who may invoke the agent](#who-may-invoke-the-agent) |
@@ -494,9 +496,11 @@ without ever giving it the *contents*.**
 
 [Latch](https://plow.co/latch) ships as a Mac app; underneath it are three
 stacked parts — an MCP **capability broker** (the tools), an **approval +
-sandbox gate**, and a local **password vault**. **This agent does not use it**,
-and it is **Mac only**; the rest of this section is what it is and how you would
-wire this agent to it if you wanted to.
+sandbox gate**, and a local **password vault**. **This agent uses it for one
+thing**: `what's next` asks your Mac for the next calendar item —
+`src/agent/lib/latch.py` is the client, `src/agent/commands/agenda.py` the
+command. Everything below is what Latch is, and how that call works. It is
+**Mac only**.
 
 ### How it fits together
 
@@ -637,10 +641,11 @@ the agent can act *as* you without being able to read the credential.
 
 The relay endpoint, plus the bearer it already has:
 
-- **relay URL** — exported as `PLOW_MCP_URL` on hosted agents, and carried as
-  `mcp_url` in the cloud identity shape. **Absent means no Mac**, so the agent
-  should say it cannot reach the Mac rather than pretend.
-- **bearer** — `PLOW_AGENT_TOKEN`, the same credential the Plow API uses.
+- **relay URL** — learned from `GET /v1/agents/me` (`mcp_url`) on every connect,
+  so a Mac that appears or goes away is picked up without a restart;
+  `PLOW_MCP_URL` overrides it. **Absent means no Mac**, and the agent says so
+  rather than pretending.
+- **bearer** — `PLOW_AGENT_TOKEN`, the same credential every other call uses.
 
 A call is then just JSON-RPC `tools/call` over HTTP:
 
@@ -797,6 +802,7 @@ the level needs the container recreated, which the `up -d` above does.
 | Plow's pull fails; agent never reaches `running` | the GHCR package is still private — set it **Public** (see GHCR above) |
 | `deploy` rejects the image reference | deploy takes `repository@sha256:…`, not a `:tag` — paste the digest `image push` printed |
 | want a different agent name | names are set at creation and cannot be changed — see [Naming the agent](#naming-the-agent) |
+| `what's next` replies *"plow-gog is turned off on this Mac"* | the relay worked and your Mac refused it — turn the **gog** plugin back on in Latch |
 
 ## Rebuild after a code change
 
@@ -818,7 +824,7 @@ docker compose down -v            # stop the container and drop its state volume
 ## Inference (the model)
 
 The agent already uses **Plow's inference** — for story requests, and nothing
-else. `runtime.respond()` routes first (echo / help / story / time) and only the story branch
+else. `runtime.respond()` routes first — help → story → time → agenda → **echo last**, the catch-all — and only the story branch
 calls the model, so the default reply stays free. This section is how that call
 works, and where to point it instead.
 

@@ -39,9 +39,12 @@ def check(resp):
 class Plow:
     """The client. One instance holds the base URL and the bearer."""
 
-    def __init__(self, base: str, token: str):
+    def __init__(self, base: str, token: str, mcp_url: str | None = None):
         self.base = base.rstrip("/")
         self.token = token
+        # The Latch relay URL: usually learned from GET /v1/agents/me, and an
+        # explicit one (config.MCP_URL) wins. None means no Mac is connected.
+        self.mcp_url = mcp_url
 
     @property
     def auth(self) -> dict:
@@ -55,7 +58,11 @@ class Plow:
     # --- reads ---------------------------------------------------------------
 
     async def identify(self, http):
-        """GET /v1/agents/me -- log who this agent is. Best effort.
+        """GET /v1/agents/me -- who this agent is, and where its Mac is.
+
+        Also where `mcp_url` comes from: the Latch relay this agent would call,
+        or null when the account has no Mac. Re-read on every connect, so a Mac
+        that appears (or goes away) is picked up without a restart.
 
         A 404 is the documented "this token is not one agent" (a wildcard or
         multi-line grant); it answers no identity but is not a failure, so it is
@@ -64,8 +71,11 @@ class Plow:
         async with http.get(f"{self.base}/v1/agents/me", headers=self.auth) as resp:
             if resp.status == 200:
                 me = await resp.json(content_type=None)
-                log.info("identity: agent=%s line=%s", (me.get("agent") or {}).get("uid"),
-                         (me.get("line") or {}).get("provider_key"))
+                self.mcp_url = self.mcp_url or me.get("mcp_url")
+                log.info("identity: agent=%s line=%s mac=%s",
+                         (me.get("agent") or {}).get("uid"),
+                         (me.get("line") or {}).get("provider_key"),
+                         "connected" if self.mcp_url else "none")
             elif resp.status != 404:
                 check(resp)
 

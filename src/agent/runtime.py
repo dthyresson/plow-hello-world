@@ -275,6 +275,7 @@ class Agent:
         Backfill runs after the socket is up, so nothing sent during the gap is
         lost; the dedupe in on_message absorbs any overlap.
         """
+        await self.plow.identify(http)      # also refreshes mcp_url (the Mac)
         await self.refresh_chats(http)
         ticket = await self.plow.ticket(http)
         async with http.ws_connect(self.plow.ws_url(ticket),
@@ -303,8 +304,6 @@ class Agent:
             try:
                 # total=None: a websocket must not be killed by a request timeout.
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None)) as http:
-                    if attempt == 0:
-                        await self.plow.identify(http)
                     await self.session(http)
             except CredentialRefused:
                 log.error("credential refused (401); stopping -- re-mint this agent's token")

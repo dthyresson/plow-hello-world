@@ -14,6 +14,7 @@ Five small modules, split so each reads on its own:
 | `src/agent/lib/plow.py` | the Plow HTTP contract — identity, chats, ticket, history, send, inference | the wire |
 | `src/agent/commands/` | the replies — one file per command | what the agent says |
 | `src/agent/lib/router.py` | which command a message maps to | how it decides |
+| `src/agent/lib/latch.py` | the relay to the owner's Mac (MCP over HTTP) | how a command reaches a Mac |
 | `src/agent/runtime.py` | the connection and its lifecycle | how it stays online, and who may use it |
 
 `runtime.py` is the shell around the rest, and `__main__.py` starts it. A
@@ -199,11 +200,13 @@ it. Routing happens *before* anything costly, and **order is the policy** — fi
 match wins, so the catch-all comes last:
 
 ```python
-# src/agent/commands/__init__.py
+# src/agent/commands/__init__.py -- order IS the policy: first match wins
 COMMANDS = (
-    ("help", lambda text: text.lower() in ("help", "commands", "?"), help_cmd.run),
-    ("story", STORY_REQUEST.search, story.run),
-    ("echo", lambda text: True, echo.run),          # the catch-all
+    ("help",   lambda text: text.lower() in ("help", "commands", "?"), help_cmd.run),
+    ("story",  STORY_REQUEST.search,                 story.run),
+    ("time",   time_cmd.matches,                     time_cmd.run),
+    ("agenda", agenda.matches,                       agenda.run),
+    ("echo",   lambda text: True,                    echo.run),   # catch-all, last
 )
 ```
 

@@ -19,7 +19,7 @@ async def main():
     if not config.TOKEN:
         log.error("PLOW_AGENT_TOKEN is not set")
         return 2
-    agent = Agent(Plow(config.BASE, config.TOKEN))
+    agent = Agent(Plow(config.BASE, config.TOKEN, config.MCP_URL))
     loop = asyncio.get_running_loop()
     # SIGTERM (docker stop) and SIGINT (Ctrl-C) both flip the stop event, so the
     # current sleep is cut short and the loop exits within the grace period.

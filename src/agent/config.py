@@ -19,6 +19,9 @@ MODEL = os.environ.get("PLOW_MODEL", "anthropic/claude-sonnet-5")
 # The owner's timezone, an IANA name (e.g. "America/New_York"), for the `time`
 # command's Local row. Unset falls back to the container's own local time.
 TZ = os.environ.get("TZ") or None
+# The Latch relay URL, where the owner's Mac is reachable. Usually learned from
+# GET /v1/agents/me; set this to override (e.g. against a local relay).
+MCP_URL = os.environ.get("PLOW_MCP_URL") or None
 # Handles (phone numbers or emails) besides the owner that may invoke the agent.
 ALLOWED_HANDLES = {
     handle.strip().lower()
