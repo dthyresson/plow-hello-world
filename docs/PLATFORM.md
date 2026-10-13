@@ -65,7 +65,7 @@ product. That is the whole shape of Plow in one sentence.
 | part | what it is |
 |---|---|
 | **Lines** | A shared pool of real phone numbers, each holding one agent. Any account can see them, so **"who can text it" is not a secret** — reachability is a permission you add. |
-| **Email lines** | An agent gets its own mailbox beside its phone line (`<line-name>@plow.co`, for the line this repo was built on). |
+| **Email lines** | An agent gets its own mailbox beside its phone line (`<line-name>@plow.co`). |
 | **Groups, trust, peers** | Threads carry a roster with `role` and `relationship`, per-chat trust (discretion vs full trust), and other Plow agents as participants — so rooms are multi-party, not DMs. |
 | **Payments** | The credential carries `payments:request`, and the agent has a `payment_approval_threshold_usd` (100 by default): a path where Plow releases a banking credential at or below the threshold and sends a single-use approval link above it. |
 | **Connectors** | The minted credential's scopes include `connectors:use`, `gmail:connect` and `slack:connect` — so cloud integrations sit *beside* Latch's Mac access, not inside it. |
