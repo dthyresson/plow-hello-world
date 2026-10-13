@@ -866,7 +866,7 @@ provider config:
 
 ```
 POST {PLOW_API_BASE}/v1/chat/completions
-Authorization: Bearer <PLOW_AGENT_TOKEN>          # the agent's own credential (== AUTH)
+Authorization: Bearer <PLOW_AGENT_TOKEN>          # the same bearer as every call
 {
   "model": "anthropic/claude-sonnet-5",           # PLOW_MODEL overrides this
   "max_tokens": 500,
