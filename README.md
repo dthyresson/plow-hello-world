@@ -26,7 +26,8 @@ src/agent/
 └── commands/            the replies, one file each
     ├── echo.py
     ├── help.py
-    └── story.py
+    ├── story.py
+    └── time.py
 ```
 
 | file | what it is |
@@ -184,6 +185,8 @@ Text the number `plow-agents lines` shows for your line. What you get back:
 |---|---|
 | anything at all | `hello world. You said: …` (echo) |
 | `help` | the command list |
+| `what time is it` | UTC, local, and Berlin / London / Wellington / San Francisco / Boston — plus a Spin Doctors wink |
+| `time in london`, `tell me the time`, `time?` | the same clock |
 | `tell me a story about a penguin` | a short story, generated with Plow inference |
 | `i want a bedtime tale about a lion` | …same, any animal |
 
@@ -214,6 +217,7 @@ environment variables from `./plow-credentials`.
 | `PLOW_AGENT_TOKEN` | **yes** | the line-scoped bearer. In `plow-credentials`. |
 | `PLOW_HOME_CHANNEL` | no | a `cht_…` home chat; otherwise the agent picks its solo owner DM |
 | `PLOW_MODEL` | no | inference model id (default `anthropic/claude-sonnet-5`) — any id from the allowlist, see [Inference](#inference-the-model) |
+| `TZ` | no | IANA timezone for the `time` command's **Local** row (e.g. `America/New_York`); unset uses the container's own local time |
 | `AGENT_STATE_DIR` | no | where the checkpoint file lives (default `./plow-state`; compose sets `/data`) |
 | `LOG_LEVEL` | no | `DEBUG`, `INFO` (default), `WARNING` or `ERROR` — see [Logs](#logs) |
 | `PLOW_ALLOWED_HANDLES` | no | comma-separated handles besides the owner allowed to invoke the agent — see [Who may invoke the agent](#who-may-invoke-the-agent) |
@@ -749,7 +753,7 @@ docker compose down -v            # stop the container and drop its state volume
 ## Inference (the model)
 
 The agent already uses **Plow's inference** — for story requests, and nothing
-else. `runtime.respond()` routes first (echo / help / story) and only the story branch
+else. `runtime.respond()` routes first (echo / help / story / time) and only the story branch
 calls the model, so the default reply stays free. This section is how that call
 works, and where to point it instead.
 

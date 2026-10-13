@@ -9,6 +9,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       PLOW_MODEL: ${PLOW_MODEL:-anthropic/claude-sonnet-5}
       PLOW_ALLOWED_HANDLES: ${PLOW_ALLOWED_HANDLES:-}
+      TZ: ${TZ:-}
     volumes:
       - agent-state:/data
     stop_grace_period: 35s

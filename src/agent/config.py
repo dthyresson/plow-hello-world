@@ -16,6 +16,9 @@ TOKEN = os.environ.get("PLOW_AGENT_TOKEN", "")
 HOME_CHANNEL = os.environ.get("PLOW_HOME_CHANNEL") or None
 # Which model inference uses. Any id from Plow's allowlist; see the README.
 MODEL = os.environ.get("PLOW_MODEL", "anthropic/claude-sonnet-5")
+# The owner's timezone, an IANA name (e.g. "America/New_York"), for the `time`
+# command's Local row. Unset falls back to the container's own local time.
+TZ = os.environ.get("TZ") or None
 # Handles (phone numbers or emails) besides the owner that may invoke the agent.
 ALLOWED_HANDLES = {
     handle.strip().lower()

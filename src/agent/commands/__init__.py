@@ -15,13 +15,18 @@ import re
 
 from agent.commands import echo, story
 from agent.commands import help as help_cmd
+from agent.commands import time as time_cmd
 
 # Word-bounded on purpose: "history" contains "story", and a substring test would
 # send it to the model.
 STORY_REQUEST = re.compile(r"\b(story|stories|tale|tales|bedtime)\b", re.IGNORECASE)
 
 COMMANDS = (
+    # Order is the policy -- first match wins, most specific first. `time` sits
+    # ABOVE the catch-all so a clock question is never swallowed by echo, and
+    # BELOW story so "a story about a time machine" still routes to story.
     ("help", lambda text: text.lower() in ("help", "commands", "?"), help_cmd.run),
     ("story", STORY_REQUEST.search, story.run),
+    ("time", time_cmd.matches, time_cmd.run),
     ("echo", lambda text: True, echo.run),
 )
