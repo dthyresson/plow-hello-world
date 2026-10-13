@@ -48,6 +48,12 @@ routing, the guard that decides who may invoke it, the skills it reads, and the
 policy you want where no platform policy reaches. This repo is a small, complete
 example — `src/agent/`, five modules, no framework.
 
+Worth knowing: **the default image is itself a Hermes agent.** `plow-hermes-agent`
+is the Hermes runtime under s6-overlay with the `plow_chat` plugin pinned, so the
+loop — sessions, tools, memory, skills, sub-agents — is borrowed, and the line, the
+relay, the inference bill, the approvals, the payments and the catalog are the
+product. That is the whole shape of Plow in one sentence.
+
 ## Easy to miss
 
 | part | what it is |
