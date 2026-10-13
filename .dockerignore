@@ -1,0 +1,6 @@
+/plow-credentials
+/plow-state/
+/.commandcode/
+/.git/
+__pycache__/
+*.pyc
