@@ -47,6 +47,7 @@ src/agent/
 | `Dockerfile` | `python:3.11-slim`, runs `python -m agent` as PID 1 |
 | `requirements.txt` | `aiohttp` (HTTP **and** WebSocket in one dep) |
 | `compose.yml` | how it runs locally: builds this dir, loads `./plow-credentials`, `/data` volume |
+| `Makefile` | one-line tasks for the common ones — `make start`, `make logs`, `make down`; run `make` to list them |
 | `.gitignore`, `.dockerignore` | both exclude `/plow-credentials` — the credential never enters git or the image |
 | `docs/HOW-IT-WORKS.md` | a walkthrough of the code, top to bottom |
 | `docs/PLATFORM.md` | what Plow is — the platform around the agent, in one page |
@@ -87,6 +88,46 @@ git clone https://github.com/plow-pbc/plow-agents.git ~/projects/plow/plow-agent
 export PATH="$HOME/projects/plow/plow-agents/bin:$PATH"   # or call it by full path
 plow-agents --help
 ```
+
+## Quick start
+
+Once Colima and the `plow-agents` CLI are installed ([Prerequisites](#prerequisites)), the whole cycle is three commands from this directory:
+
+```sh
+make start    # boot the engine, build, and start the agent
+make logs     # watch it; text the line and it answers
+make down     # stop the agent, then the engine
+```
+
+`make` with no target lists them all. The same thing by hand, if you would rather see each step:
+
+```sh
+colima start && docker compose up -d --build
+docker compose logs -f
+docker compose down && colima stop
+```
+
+A first run is `make deploy LINE=ln_…`, which mints the credential before it builds and starts. Each step is spelled out in full below — [Start and stop Docker](#start-and-stop-docker), [Launch everything (local)](#launch-everything-local), [Rebuild after a code change](#rebuild-after-a-code-change).
+
+### Make targets
+
+The `Makefile` wraps the commands used most, so nothing here needs to be typed from memory. Run it from this directory; `make` on its own prints this table.
+
+| target | does |
+|---|---|
+| `make start` | boot the engine if it is down, build the image, start the agent — safe to repeat |
+| `make up` | start the agent without rebuilding (after the first build) |
+| `make stop` | stop and remove the agent — keeps the engine and the `/data` volume |
+| `make down` | `stop`, then shut the engine down (stops every container with it) |
+| `make restart` | restart the agent container, no rebuild |
+| `make build` | build the image only |
+| `make logs` | follow the agent's output (Ctrl-C stops watching, not the agent) |
+| `make ps` | what is running |
+| `make shell` | a shell inside the agent container |
+| `make deploy LINE=ln_…` | mint a credential, then build and start (first run) |
+| `make clean` | stop everything and delete the `/data` volume (fresh checkpoint next boot) |
+
+`make start` rebuilds, so it is also how a code change takes effect; `make up` skips the build when nothing changed. `make stop` and `make down` differ in exactly the way the engine does: the first lets the engine keep running, the second shuts it down too.
 
 ## Start and stop Docker
 
