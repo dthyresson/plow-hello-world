@@ -645,8 +645,9 @@ docker compose logs -f --timestamps
 docker compose logs > agent.log  # capture to a file
 ```
 
-A healthy boot plus one round trip looks like this — each invocation logs the
-sender's full identity (`type`, `role`/`relationship`, name, handle):
+A healthy boot, one echo, and one story looks like this — each invocation logs
+the sender's full identity (`type`, `role`/`relationship`, name, handle), and an
+inference call logs what was asked and what came back:
 
 ```
 INFO starting against https://api.plow.co (allowlist: owner only)
@@ -654,16 +655,28 @@ INFO identity: agent=… line=+1…
 INFO chats: … (home=cht_…)
 INFO websocket connected
 INFO inbound cht_… from member role=owner Sam (+15550100001): 'Dt'
+INFO route: echo
 INFO outbound cht_…: 'hello world. You said: Dt'
+
+INFO inbound cht_… from member role=owner Sam (+15550100001): 'tell me a story about a penguin'
+INFO route: story
+INFO inference reply (1096 chars): Little Pip the penguin waddled across the snow…
+INFO outbound cht_…: 'Little Pip the penguin waddled across the snow…'
 ```
 
-At `LOG_LEVEL=DEBUG` every invocation also prints the chat roster, and a refused
-sender is logged on the same shape:
+At `LOG_LEVEL=DEBUG` you also get the chat roster on every invocation, the exact
+prompt sent to the model, and a refused sender:
 
 ```
 DEBUG cht_… roster: agent rel=self Willow (+15550100002); member role=owner Sam (+15550100001)
+DEBUG inference request: model=anthropic/claude-sonnet-5 system="You tell very short…" user='tell me a story about a penguin'
 INFO ignored cht_… from member rel=wife Anna (+14155550000): not the owner and not allow-listed
 ```
+
+Two notes on the inference lines: `inference reply` prints the **full text**, so a
+story is a multi-paragraph log entry, and the reply legitimately appears twice —
+once as what the model said, once as `outbound`, which is what was sent after
+trimming.
 
 Set how much it logs with `LOG_LEVEL` — `DEBUG`, `INFO` (default), `WARNING`, or
 `ERROR`:

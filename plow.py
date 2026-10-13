@@ -132,6 +132,7 @@ class Plow:
         empty balance, 400 is a model id the allowlist refuses -- rather than
         swallowing the failure. A 401 is still terminal and propagates.
         """
+        log.debug("inference request: model=%s system=%r user=%r", model, system, user)
         payload = {
             "model": model,
             "max_tokens": max_tokens,
@@ -154,5 +155,7 @@ class Plow:
             log.warning("inference failed: %s: %s", type(exc).__name__, exc)
             raise ModelUnavailable("the model request failed") from exc
         text = text.strip()
-        log.info("model reply: %d chars", len(text))
+        # The reply text itself, so the logs show what the model actually said.
+        # (send() logs it again as `outbound`, which is what was sent.)
+        log.info("inference reply (%d chars): %s", len(text), text)
         return text
