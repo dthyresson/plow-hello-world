@@ -18,3 +18,7 @@ venv/
 # --- Editors ---------------------------------------------------------------
 .idea/
 .vscode/
+
+# --- Command Code ----------------------------------------------------------
+# .commandcode/settings.json is shared and committed; taste is machine-local.
+.commandcode/taste/
