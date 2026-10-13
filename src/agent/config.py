@@ -35,6 +35,20 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 STATE_DIR = pathlib.Path(os.environ.get("AGENT_STATE_DIR", "./plow-state"))
 CHECKPOINTS = STATE_DIR / "last_uids.json"
 
+# --- responsiveness ----------------------------------------------------------
+# iMessage has no typing indicator an agent can drive -- its only outbound
+# primitive is a whole message -- so a turn that outlasts this many seconds
+# sends a short acknowledgement first, then its reply. See
+# runtime.Agent._respond_with_ack. PLOW_ACK_DELAY overrides it; 0 (or less)
+# turns the acknowledgement off. A malformed value falls back rather than
+# taking the line down.
+try:
+    ACK_DELAY = float(os.environ.get("PLOW_ACK_DELAY", "0.75"))
+except ValueError:
+    ACK_DELAY = 0.75
+# What that acknowledgement says. PLOW_ACK_TEXT overrides it.
+ACK_TEXT = os.environ.get("PLOW_ACK_TEXT", "On it…")
+
 # --- connection tuning (matches the Hermes plugin) ---------------------------
 # After a session ends, retry immediately once, then back off 30s doubling to a
 # 5-minute cap. The curve resets only for a session that stayed up long enough to

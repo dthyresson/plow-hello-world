@@ -184,3 +184,62 @@ gate is deterministic rather than a model call.
 **Related.** The agent's own inference has the same shape — `Plow.complete()` posts the
 owner's message text to the same endpoint — so a local reviewer closes only half the
 door. `docs/PLATFORM.md` describes the proxy; `LIFECYCLE.md` covers what runs where.
+
+---
+
+## Should the platform expose a typing indicator, so the agent can drop the acknowledgement bubble?
+
+> Original note: *"something i noticed is that the roundtrip from message to agent and
+> even to latch and back there is a delay and no feedback. imessage shows ... dots to
+> show if someone is replying. is that possible? if not should there be if this is
+> taking longer than a .75 second or so some acknowledge that stuff is going on othewise
+> feels slow and not sure if working"*
+
+**Question.** iMessage shows a "…" bubble while the other side composes, and every
+human reads it as "they are working". A Plow agent cannot ask for one: it never speaks
+iMessage, and its only outbound primitive (`POST /v1/chats/{uid}/messages`) is a whole
+message — with no edit or delete. So the agent now approximates the dots with a real
+message: a turn still running after `PLOW_ACK_DELAY` (0.75s) sends `PLOW_ACK_TEXT`
+(`On it…`) before its reply, and that bubble is permanent
+(`runtime.Agent._respond_with_ack`). Should the platform expose a typing indicator
+instead, so the agent can show progress without leaving a message behind?
+
+**Context.** The bubble belongs to the *sending device*, so only Plow — which owns the
+line and its sending Mac — can emit one; the same is true of read receipts and tapbacks.
+That is the same boundary that makes the dots impossible from the agent and possible in
+principle from Plow, which is why this is a platform question, not an agent one. The
+current stand-in is cheap and needs no contract change, but it costs a second bubble the
+owner cannot retract, and it fires only *after* the delay — a real indicator would start
+before it.
+
+**Options.**
+
+1. **Keep the acknowledgement bubble (status quo).** No platform change; the agent stays
+   self-contained. Cost: a permanent extra message, and a poor fit for group chats, where
+   it reads as noise rather than reassurance.
+2. **A typing endpoint.** e.g. `POST /v1/chats/{uid}/typing` (start/stop, or a short TTL),
+   so the agent — or the platform on its behalf — drives the real indicator. Cost: a new
+   wire primitive to design, and the pool line's device must emit it per call.
+3. **Platform-side, automatic.** Plow shows typing whenever it is waiting on an agent for
+   a turn (it already knows a message was delivered and none came back). No agent change
+   at all. Cost: it must not fire for turns the agent ignores (an unauthorized sender, an
+   empty body), so the trigger has to duplicate the agent's own guard.
+4. **A replaceable acknowledgement in the contract.** Let a send declare itself a
+   *provisional* reply the platform may supersede when the real one arrives, so the bubble
+   does not pile up. Cost: edit/delete semantics on a channel that has none, against a
+   real phone.
+
+**What would decide it.**
+
+- **Is the win only perceived latency once the frame loop is concurrent?** Today a slow
+  turn also delays the *next* message, so an ack helps twice; fix the loop and the ack is
+  purely about perception, which makes option 3 the cheap choice.
+- **What does a pool line cost per indicator?** If every typing event is a send through
+  the shared device, the platform carries that load for every agent — a reason to prefer
+  option 3 over 2.
+- **Do group chats need it?** They are where the permanent-bubble cost is highest; if the
+  answer is no, the indicator can be DM-scoped and the trade shrinks.
+
+**Related.** `runtime._respond_with_ack` and `config.ACK_DELAY`/`ACK_TEXT` are the current
+stand-in; `docs/HOW-IT-WORKS.md` ("the acknowledgement bubble") says why. The frame loop's
+sequentiality — the other half of "feels slow" — is `Agent.session()`.

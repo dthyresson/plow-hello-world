@@ -7,6 +7,7 @@ This module keeps the socket alive and decides what may reach the agent:
   * the per-chat checkpoint, written atomically
   * the guard: who may invoke the agent (the owner, plus PLOW_ALLOWED_HANDLES)
   * each authorized message is handed to the router, whose command answers it
+  * a turn that outlasts ACK_DELAY is acknowledged before its reply (_respond_with_ack)
 
 It deliberately contains neither the wire nor the replies:
 
@@ -250,10 +251,39 @@ class Agent:
         if not body and not message.get("attachments"):
             return
         log.info("inbound %s from %s: %r", chat_uid, _describe(sender), body)
-        reply = await self.respond(http, message)
+        reply = await self._respond_with_ack(http, chat_uid, message)
         if reply:
             await self.plow.send(http, chat_uid, reply)
         self._save_checkpoint(chat_uid, uid)
+
+    async def _respond_with_ack(self, http, chat_uid, message):
+        """Run the turn, acknowledging first if it runs long.
+
+        iMessage has no typing indicator this agent can drive -- its only
+        outbound primitive is a whole message (`plow.send`), with no edit or
+        delete. So the stand-in is an acknowledgement bubble: start the turn,
+        and if it is still running after `config.ACK_DELAY`, post
+        `config.ACK_TEXT` while it continues. A turn that finishes in time --
+        every free command -- never acks, so the bubble appears only when the
+        owner would otherwise sit in silence.
+
+        The reply is returned to on_message, which sends it as usual, so the ack
+        lands first and the answer follows it. An ack that fails to send is
+        logged and swallowed: losing the acknowledgement is not worth losing the
+        answer.
+        """
+        if config.ACK_DELAY <= 0:
+            return await self.respond(http, message)
+        turn = asyncio.ensure_future(self.respond(http, message))
+        done, _ = await asyncio.wait({turn}, timeout=config.ACK_DELAY)
+        if not done:
+            log.info("turn still running after %.2fs; acknowledging %s with %r",
+                     config.ACK_DELAY, chat_uid, config.ACK_TEXT)
+            try:
+                await self.plow.send(http, chat_uid, config.ACK_TEXT)
+            except Exception as exc:
+                log.warning("ack send failed: %s: %s", type(exc).__name__, exc)
+        return await turn
 
     async def respond(self, http, message):
         """Hand the text to the router and run whichever command matched.

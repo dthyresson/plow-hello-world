@@ -9,6 +9,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       PLOW_MODEL: ${PLOW_MODEL:-anthropic/claude-sonnet-5}
       PLOW_ALLOWED_HANDLES: ${PLOW_ALLOWED_HANDLES:-}
+      PLOW_ACK_DELAY: ${PLOW_ACK_DELAY:-0.75}
+      PLOW_ACK_TEXT: "${PLOW_ACK_TEXT:-On it…}"
       TZ: ${TZ:-}
     volumes:
       - agent-state:/data

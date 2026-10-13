@@ -32,6 +32,7 @@ main()             config guard, signal handlers, run()
     Agent.session()  one connection: identify -> reach -> ticket -> socket -> backfill -> frames
       Agent.on_frame()   route one WebSocket frame
       Agent.on_message() filter, authorize, reply, checkpoint
+        Agent._respond_with_ack()  ack first if the turn outlasts ACK_DELAY
         Agent.respond()  hand the text to the router
           router.route()   -> a command in commands/
             story()          -> plow.Plow.complete()   (the one inference call)
@@ -197,10 +198,33 @@ value and what each means.
 additionally prints the whole chat roster (`_roster()`). That is what makes "who
 texted, and were they allowed" a question the logs answer without a debugger.
 
-Then: `respond()` routes the text to its command, `plow.send()` posts the reply,
-and finally `_save_checkpoint()` records the uid. The checkpoint is written
-**last**, after the reply — a crash mid-turn replays the message rather than
-dropping it.
+Then: `_respond_with_ack()` runs the command (acking first if it runs long — see
+below), `plow.send()` posts the reply, and finally `_save_checkpoint()` records
+the uid. The checkpoint is written **last**, after the reply — a crash mid-turn
+replays the message rather than dropping it.
+
+### `_respond_with_ack()` — the acknowledgement bubble
+
+iMessage's typing indicator is emitted by the *sending device*, and this agent
+never touches iMessage — its only outbound primitive is a whole message
+(`plow.send`), with no edit or delete. So there is no way to show real dots. The
+stand-in is a short message: start the turn as a task, wait `config.ACK_DELAY`
+(`0.75s`), and if the turn is still running, post `config.ACK_TEXT` (`On it…`)
+while it continues. The reply is returned to `on_message`, which sends it as
+usual — so the ack lands first and the answer follows it.
+
+Three consequences worth stating:
+
+- **Only slow turns ack.** Every free command (`echo`, `help`, `time`) finishes
+  well inside the window, so the bubble appears only when the owner would
+  otherwise sit in silence — a story (~3.7s) or a `what's next` waiting on the
+  Mac. Nothing decides *which* commands ack; the clock does.
+- **`ACK_DELAY <= 0` disables it**, and a failed ack send is logged and swallowed
+  — losing the acknowledgement is not worth losing the answer.
+- **The bubble is permanent.** With no edit or delete, `On it…` cannot be
+  retracted once the real reply lands. That is the price of a channel with no
+  typing indicator; the open question is whether the platform should offer one
+  instead — see `docs/QUESTIONS.md`.
 
 ### `lib/router.py` + `commands/` — what a message is
 
@@ -365,6 +389,7 @@ connect: it anchors at the newest message instead of trying to backfill.
 | re-read reach on every connect | the grant can change while you are away |
 | re-read identity on every connect | a Mac can attach while the agent runs |
 | the guard runs before any command | reachability is a spend surface once a model is wired in |
+| a turn over `ACK_DELAY` is acked before its reply | silence reads as "not working", and iMessage has no typing indicator the agent can drive |
 
 ## What is deliberately not here
 

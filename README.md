@@ -200,6 +200,10 @@ Text the number `plow-agents lines` shows for your line. What you get back:
 | `tell me a story about a penguin` | a short story, generated with Plow inference |
 | `i want a bedtime tale about a lion` | …same, any animal |
 
+`what's next` and a story can take a second or two — past `PLOW_ACK_DELAY` the
+agent sends `On it…` first, so the thread is not silent while it works. `echo`,
+`help` and `time` answer too fast to ack.
+
 No inbound ports are published — the agent dials out to Plow, which is why
 `compose.yml` exposes none.
 
@@ -232,6 +236,8 @@ environment variables from `./plow-credentials`.
 | `AGENT_STATE_DIR` | no | where the checkpoint file lives (default `./plow-state`; compose sets `/data`) |
 | `LOG_LEVEL` | no | `DEBUG`, `INFO` (default), `WARNING` or `ERROR` — see [Logs](#logs) |
 | `PLOW_ALLOWED_HANDLES` | no | comma-separated handles besides the owner allowed to invoke the agent — see [Who may invoke the agent](#who-may-invoke-the-agent) |
+| `PLOW_ACK_DELAY` | no | seconds a reply may take before a short acknowledgement is sent first (default `0.75`); `0` turns it off |
+| `PLOW_ACK_TEXT` | no | what that acknowledgement says (default `On it…`) |
 
 ## Who may invoke the agent
 
@@ -505,6 +511,11 @@ Behavior the agent implements, and why:
 - **Delivery-unknown.** A `408`/`424`/`5xx` on send may have been accepted, so
   it is reported and **never** blindly resent — that is how you double-text a
   real phone.
+- **Acknowledgement.** There is no typing indicator the agent can trigger —
+  iMessage's bubble is emitted by the sending device, and the agent's only
+  outbound primitive is a whole message (with no edit or delete). So a turn still
+  running after `PLOW_ACK_DELAY` (`0.75s`) sends `PLOW_ACK_TEXT` (`On it…`)
+  first, then the real reply. Free commands finish in time and never ack.
 
 ## Latch (reaching your Mac)
 
@@ -777,6 +788,8 @@ INFO outbound cht_…: 'hello world. You said: Dt'
 
 INFO inbound cht_… from member role=owner Sam (+15550100001): 'tell me a story about a penguin'
 INFO route: story
+INFO turn still running after 0.75s; acknowledging cht_… with 'On it…'
+INFO outbound cht_…: 'On it…'
 INFO inference ok: model=claude-sonnet-5 finish=stop tokens in/out/total=126/209/335 cached=0 in 3728ms
 INFO inference reply (1096 chars): Little Pip the penguin waddled across the snow…
 INFO outbound cht_…: 'Little Pip the penguin waddled across the snow…'
