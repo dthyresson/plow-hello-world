@@ -1,6 +1,6 @@
 # How the agent works
 
-A walkthrough of `agent.py`. For setup and commands, see `README.md`; this is
+A walkthrough of the agent. For setup and commands, see `README.md`; this is
 about the code — what it does, in what order, and why each decision is the way
 it is.
 
@@ -10,13 +10,13 @@ Five small modules, split so each reads on its own:
 
 | file | owns | read it to learn |
 |---|---|---|
-| `config.py` | every environment setting | where a value comes from |
-| `plow.py` | the Plow HTTP contract — identity, chats, ticket, history, send, inference | the wire |
-| `commands.py` | the replies — one function per command | what the agent says |
-| `router.py` | which command a message maps to | how it decides |
-| `agent.py` | the connection and its lifecycle | how it stays online, and who may use it |
+| `src/agent/config.py` | every environment setting | where a value comes from |
+| `src/agent/lib/plow.py` | the Plow HTTP contract — identity, chats, ticket, history, send, inference | the wire |
+| `src/agent/commands/` | the replies — one file per command | what the agent says |
+| `src/agent/lib/router.py` | which command a message maps to | how it decides |
+| `src/agent/runtime.py` | the connection and its lifecycle | how it stays online, and who may use it |
 
-`agent.py` is the shell around the rest — one class and one entry point. A
+`runtime.py` is the shell around the rest, and `__main__.py` starts it. A
 message's path, top to bottom:
 
 ```
@@ -26,7 +26,7 @@ main()             config guard, signal handlers, run()
       Agent.on_frame()   route one WebSocket frame
       Agent.on_message() filter, authorize, reply, checkpoint
         Agent.respond()  hand the text to the router
-          router.route()   -> a command in commands.py
+          router.route()   -> a command in commands/
             story()          -> plow.Plow.complete()   (the one inference call)
 ```
 
@@ -192,22 +192,25 @@ and finally `_save_checkpoint()` records the uid. The checkpoint is written
 **last**, after the reply — a crash mid-turn replays the message rather than
 dropping it.
 
-### `router.py` — what a message is
+### `lib/router.py` + `commands/` — what a message is
 
-The router decides what a message *is* before anything costly happens:
+The table lives with the commands; `router.py` is only the mechanism that walks
+it. Routing happens *before* anything costly, and **order is the policy** — first
+match wins, so the catch-all comes last:
 
 ```python
-ROUTES = (
-    ("help",  lambda t: t.lower() in ("help", "commands", "?"), help_command),
-    ("story", STORY_REQUEST.search,                            story),
-    ("echo",  lambda t: True,                                  echo),   # catch-all
+# src/agent/commands/__init__.py
+COMMANDS = (
+    ("help", lambda text: text.lower() in ("help", "commands", "?"), help_cmd.run),
+    ("story", STORY_REQUEST.search, story.run),
+    ("echo", lambda text: True, echo.run),          # the catch-all
 )
 ```
 
-…and `Agent.respond()` is now just "hand it to the router, run what it picks":
+…and `Agent.respond()` is just "hand it to the router, run what it picks":
 
 ```python
-name, handler = route(text)
+name, handler = route(COMMANDS, text)
 return await handler(self.plow, http, text)
 ```
 
@@ -218,7 +221,7 @@ would send it to the model.
 
 ### How Plow inference is called — `plow.Plow.complete()`
 
-The entire model integration is one method in `plow.py`: one HTTP request,
+The entire model integration is one method in `lib/plow.py`: one HTTP request,
 OpenAI-shaped, on the credential the agent already holds. No SDK, no API key, no
 provider config:
 
@@ -252,9 +255,10 @@ it is sent to a phone and nothing more — and every message routed to the model
 is **spend**, which is why the guard in `_authorized()` (and the router itself)
 matter more once a model is wired in.
 
-To add a command: write it in `commands.py` as an `async def handler(plow, http,
-text) -> str`, then add one row to `ROUTES` in `router.py`. Nothing in `agent.py`
-changes — that boundary is the point of the split.
+To add a command: write a module in `src/agent/commands/` exposing
+`async def run(plow, http, text) -> str`, then add one row to `COMMANDS` in that
+directory's `__init__.py`. Nothing in `runtime.py` or `router.py` changes — that
+boundary is the point of the split.
 
 ## Backfill — catching up after a gap
 

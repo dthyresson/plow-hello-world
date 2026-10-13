@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """The connection and its lifecycle -- the transport shell.
 
-This file keeps the socket alive and decides what may reach the agent:
+This module keeps the socket alive and decides what may reach the agent:
 
   * the reconnect loop and its backoff (run)
   * one session: reach -> ticket -> socket -> backfill -> frames (session)
@@ -9,17 +8,12 @@ This file keeps the socket alive and decides what may reach the agent:
   * the guard: who may invoke the agent (the owner, plus PLOW_ALLOWED_HANDLES)
   * each authorized message is handed to the router, whose command answers it
 
-It deliberately does *not* contain the wire or the replies. The modules around
-it, in reading order:
+It deliberately contains neither the wire nor the replies:
 
-  config.py    every environment setting, in one place
-  plow.py      the Plow HTTP contract: identity, chats, ticket, history, send,
-               and inference -- the wire, and nothing above it
-  commands.py  the replies themselves: one small function per command
-  router.py    which command a message is routed to
-  agent.py     this file: the connection, and who may use it
-
-Start at the module docstring in each and follow the imports.
+  agent/config.py       every environment setting
+  agent/lib/plow.py     the Plow HTTP contract -- the wire
+  agent/lib/router.py   routing: which command answers a message
+  agent/commands/       the replies, one file per command
 """
 from __future__ import annotations
 
@@ -28,16 +22,16 @@ import json
 import logging
 import os
 import random
-import signal
 import time
 
 import aiohttp
 
-import config
-from plow import CredentialRefused, Plow
-from router import route
+from agent import config
+from agent.commands import COMMANDS
+from agent.lib.plow import CredentialRefused, Plow
+from agent.lib.router import route
 
-log = logging.getLogger("agent")
+log = logging.getLogger(__name__)
 
 
 def _solo_dm(chat):
@@ -114,7 +108,11 @@ class Agent:
         self.seen_events = []    # socket event ids, newest last
         self.checkpoints = self._load_checkpoints()   # chat uid -> last handled uid
         self.up_since = None     # monotonic time the current socket came up
-        self._stop = asyncio.Event()                   # set by SIGINT/SIGTERM
+        self._stop = asyncio.Event()                   # set by stop()
+
+    def stop(self):
+        """Ask run() to exit at the next opportunity (SIGINT/SIGTERM)."""
+        self._stop.set()
 
     # --- durable state ------------------------------------------------------
 
@@ -260,11 +258,11 @@ class Agent:
     async def respond(self, http, message):
         """Hand the text to the router and run whichever command matched.
 
-        The router decides; the command answers. Routing before any model call
-        is what keeps the default reply free -- see router.py.
+        The router decides; the command answers. Routing before any model call is
+        what keeps the default reply free -- see commands/__init__.py.
         """
         text = (message.get("body") or "").strip()
-        name, handler = route(text)
+        name, handler = route(COMMANDS, text)
         log.info("route: %s", name)
         return await handler(self.plow, http, text)
 
@@ -327,26 +325,3 @@ class Agent:
                 await asyncio.wait_for(self._stop.wait(), timeout=delay)
             except asyncio.TimeoutError:
                 pass
-
-
-async def main():
-    """Guard config, install signal handlers, run."""
-    if not config.TOKEN:
-        log.error("PLOW_AGENT_TOKEN is not set")
-        return 2
-    agent = Agent(Plow(config.BASE, config.TOKEN))
-    loop = asyncio.get_running_loop()
-    # SIGTERM (docker stop) and SIGINT (Ctrl-C) both flip the stop event, so the
-    # current sleep is cut short and the loop exits cleanly within the grace period.
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, agent._stop.set)
-    log.info("starting against %s (allowlist: %s)", config.BASE,
-             ", ".join(sorted(config.ALLOWED_HANDLES)) or "owner only")
-    await agent.run()
-    return 0
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO),
-                        format="%(asctime)s %(levelname)s %(message)s")
-    raise SystemExit(asyncio.run(main()))

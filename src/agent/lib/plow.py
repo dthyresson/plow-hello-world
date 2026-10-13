@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 
-log = logging.getLogger("agent")
+log = logging.getLogger(__name__)
 
 
 class CredentialRefused(Exception):

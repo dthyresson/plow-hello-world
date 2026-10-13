@@ -1,6 +1,6 @@
 # Development lifecycle for a Plow agent
 
-How a change to `agent.py` travels from your laptop to a live agent people text
+How a change to the agent code travels from your laptop to a live agent people text
 on Plow — and specifically, **what happens to the running "prod" agent when you
 change the code**. (Short answer: nothing, until you redeploy. Why is below.)
 
@@ -48,7 +48,7 @@ plow-agents lines                       # note a free ln_…dev
 plow-agents deploy --local --line ln_…dev
 
 # the loop, every change
-#   ...edit agent.py...
+#   ...edit src/agent/...
 docker compose up -d --build            # rebuild + recreate (a plain `restart` keeps the OLD image)
 docker compose logs -f                  # watch it boot and answer
 ```
@@ -58,7 +58,7 @@ skip Docker while iterating on pure logic:
 
 ```sh
 set -a; . ./plow-credentials; set +a
-AGENT_STATE_DIR=./plow-state python3 agent.py
+PYTHONPATH=src AGENT_STATE_DIR=./plow-state python3 -m agent
 ```
 
 Checklist before promoting: it boots, it answers, your `LOG_LEVEL` is sane, and
@@ -142,7 +142,7 @@ the digest cannot.
 
 | action | affects dev | affects tst | affects prod |
 |---|---|---|---|
-| edit `agent.py` | no (until rebuild) | no | no |
+| edit the agent code | no (until rebuild) | no | no |
 | `docker compose up -d --build` | **yes** | no | no |
 | `image build` + `image push` | no | no | no |
 | `deploy … --line ln_…tst` | no | **yes** | no |

@@ -12,24 +12,37 @@ agent does.
 
 ## What's here
 
-The code is five small modules, split so each reads on its own — `config.py`
-(settings), `plow.py` (the Plow API), `commands.py` (the replies), `router.py`
-(which command answers), `agent.py` (the connection). `HOW-IT-WORKS.md` walks
-them in order.
+The code lives in `src/agent/`, split so each piece reads on its own; the things
+that define the build and run stay at the root:
+
+```
+src/agent/
+├── __main__.py          entry point: `python -m agent`
+├── config.py            every environment setting
+├── runtime.py           the connection and its lifecycle, plus the guard
+├── lib/
+│   ├── plow.py          the Plow HTTP contract — the wire
+│   └── router.py        routing: which command answers a message
+└── commands/            the replies, one file each
+    ├── echo.py
+    ├── help.py
+    └── story.py
+```
 
 | file | what it is |
 |---|---|
-| `agent.py` | the connection and its lifecycle: socket, reconnect, checkpoint, the guard |
-| `plow.py` | the Plow HTTP contract: identity, chats, ticket, history, send, inference |
-| `commands.py` | the replies — one function per command (echo, help, story) |
-| `router.py` | which command a message is routed to |
-| `config.py` | every environment setting, in one place |
-| `Dockerfile` | `python:3.11-slim`, runs `agent.py` as PID 1 |
+| `src/agent/__main__.py` | entry point: config guard, logging, signals, then `Agent.run()` |
+| `src/agent/runtime.py` | the connection and its lifecycle: socket, reconnect, checkpoint, the guard |
+| `src/agent/lib/plow.py` | the Plow HTTP contract: identity, chats, ticket, history, send, inference |
+| `src/agent/lib/router.py` | routing: first match wins |
+| `src/agent/commands/` | the replies — one file per command (echo, help, story) |
+| `src/agent/config.py` | every environment setting, in one place |
+| `Dockerfile` | `python:3.11-slim`, runs `python -m agent` as PID 1 |
 | `requirements.txt` | `aiohttp` (HTTP **and** WebSocket in one dep) |
 | `compose.yml` | how it runs locally: builds this dir, loads `./plow-credentials`, `/data` volume |
 | `.gitignore`, `.dockerignore` | both exclude `/plow-credentials` — the credential never enters git or the image |
-| `HOW-IT-WORKS.md` | a walkthrough of the code, top to bottom |
-| `LIFECYCLE.md` | dev → test → prod, and how a change reaches the live agent |
+| `docs/HOW-IT-WORKS.md` | a walkthrough of the code, top to bottom |
+| `docs/LIFECYCLE.md` | dev → test → prod, and how a change reaches the live agent |
 | `README.md` | this file: setup, launch, start/stop, logs, deploy, troubleshooting |
 
 ## Prerequisites
@@ -83,7 +96,7 @@ brew services start colima   # optional: start it automatically at login
 **Your agent (the compose project — run these from this repo directory)**
 
 ```sh
-docker compose up -d        # start it (add --build after editing agent.py)
+docker compose up -d        # start it (add --build after a code change)
 docker compose ps           # what is running
 docker compose logs -f      # follow the agent's output; Ctrl-C stops watching, not the agent
 docker compose stop         # stop the container, keep it and the /data volume
@@ -187,7 +200,7 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 
 set -a; . ./plow-credentials; set +a    # exports PLOW_API_BASE + PLOW_AGENT_TOKEN
-AGENT_STATE_DIR=./plow-state python3 agent.py
+PYTHONPATH=src AGENT_STATE_DIR=./plow-state python3 -m agent
 ```
 
 Both paths run the identical code — the container just supplies the same two
@@ -581,7 +594,7 @@ async def relay_tool(http, name, arguments):
         next(c["text"] for c in result["content"] if c.get("type") == "text"))
 ```
 
-Then a trigger in `respond()` — the crudest useful version:
+Then a command that calls it — the crudest useful version:
 
 ```python
 if text.startswith("run:"):
@@ -696,7 +709,7 @@ Set how much it logs with `LOG_LEVEL` — `DEBUG`, `INFO` (default), `WARNING`, 
 LOG_LEVEL=DEBUG docker compose up -d     # recreated with the new level
 ```
 
-Running without Docker, it is just `LOG_LEVEL=DEBUG python3 agent.py`. Changing
+Running without Docker, it is just `LOG_LEVEL=DEBUG PYTHONPATH=src python3 -m agent`. Changing
 the level needs the container recreated, which the `up -d` above does.
 
 ## Troubleshooting
@@ -716,7 +729,7 @@ the level needs the container recreated, which the `up -d` above does.
 | Plow's pull fails; agent never reaches `running` | the GHCR package is still private — set it **Public** (see GHCR above) |
 | `deploy` rejects the image reference | deploy takes `repository@sha256:…`, not a `:tag` — paste the digest `image push` printed |
 
-## Rebuild after editing `agent.py`
+## Rebuild after a code change
 
 ```sh
 docker compose up --build -d      # rebuild and restart
@@ -736,13 +749,13 @@ docker compose down -v            # stop the container and drop its state volume
 ## Inference (the model)
 
 The agent already uses **Plow's inference** — for story requests, and nothing
-else. `respond()` routes first (echo / help / story) and only the story branch
+else. `runtime.respond()` routes first (echo / help / story) and only the story branch
 calls the model, so the default reply stays free. This section is how that call
 works, and where to point it instead.
 
 ### How the agent calls Plow inference
 
-`Plow.complete()` in `plow.py` is the entire integration — one HTTP request,
+`Plow.complete()` in `src/agent/lib/plow.py` is the entire integration — one HTTP request,
 OpenAI-shaped, on the credential the agent already holds. No SDK, no API key, no
 provider config:
 
@@ -811,23 +824,25 @@ with your account token (`~/.config/plow/token`), or use the table above.
 
 ### Adding more commands
 
-Commands live in `commands.py`; which message reaches which one lives in
-`router.py`. A "joke" command is two small additions:
+A command is one file in `src/agent/commands/`, plus one row in the routing table
+in that directory's `__init__.py`. A "joke" command is two small additions:
 
 ```python
-# commands.py — a command is `async def handler(plow, http, text) -> str`
-async def joke(plow, http, text):
+# src/agent/commands/joke.py — every command is `async def run(plow, http, text)`
+from agent import config
+
+async def run(plow, http, text):
     return await plow.complete(http, model=config.MODEL,
                                system="Tell one short, clean joke.", user=text,
                                max_tokens=200)
 
-# router.py — one row, above the echo catch-all
-("joke", lambda t: t.lower().startswith("joke"), joke),
+# src/agent/commands/__init__.py — one row, above the echo catch-all
+("joke", lambda text: text.lower().startswith("joke"), joke.run),
 ```
 
-Nothing in `agent.py` changes. Whatever a command routes to `complete()` spends
-inference; whatever it answers inline is free. And the guard still matters: a
-stranger's text routed to the model is billed to you — see
+Nothing in `runtime.py` or `router.py` changes. Whatever a command routes to
+`complete()` spends inference; whatever it answers inline is free. And the guard
+still matters: a stranger's text routed to the model is billed to you — see
 [Who may invoke the agent](#who-may-invoke-the-agent).
 
 ### Option B — your own provider
