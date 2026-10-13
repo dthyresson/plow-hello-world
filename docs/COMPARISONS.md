@@ -15,6 +15,56 @@ are direct substitutes.
 
 ---
 
+## Feature matrix
+
+Every axis the three neighbours differ on, in one grid.
+
+**Legend:** `✓` has it · `~` partial, indirect, or by composition · `–` not
+offered · `?` not documented publicly. Vendor columns come from marketing pages
+fetched 2026-10-13, so a `–` can mean "not advertised" as easily as "absent";
+`open-instinct` is v0.1 and self-described beta.
+
+| | **Plow + Latch** | **Inkbox** | **Maritime** | **open-instinct** |
+|---|---|---|---|---|
+| **REACH & IDENTITY** | | | | |
+| Phone number / iMessage | ✓ a pool line per agent | ✓ | – | ~ via Inkbox |
+| Email inbox of its own | ✓ (agent mailbox) | ✓ | – | ~ via Inkbox |
+| Inbound internet address | – agent dials out only | ✓ tunnel | ~ inside its VM | ~ via Inkbox |
+| Agent-to-agent (A2A) | ~ peer agents in a chat | ✓ explicit | – | ✓ over Inkbox |
+| Cross-channel memory (one person) | ~ per-chat sessions | ✓ the point | – | ✓ |
+| Per-channel access control | ~ grant + per-chat trust | ✓ who can reach it | – | ✓ six tiers |
+| **COMPUTE** | | | | |
+| Hosted VM per agent | ✓ | – no compute | ✓ | ✓ on Maritime |
+| One VM per *end user* | ~ per line | – | ✓ the pitch | ✓ one agent per person |
+| Persistent disk / state | ✓ state volume | – | ✓ | ✓ |
+| Snapshot-sleep, fast wake | ? | – | ✓ 0.5s boot / 0.6s wake | ~ via Maritime |
+| Own headful desktop | – | – | ✓ watch or take over | ✓ via Maritime |
+| Hardware-level isolation | ~ VM per agent | – | ✓ micro-VM, own kernel | ✓ via Maritime |
+| **CAPABILITY** | | | | |
+| Reaches *your* real Mac | ✓ Latch | – | – | – |
+| Browser automation | ✓ supervised, anti-detection | – | ✓ headful Chrome | ✓ desktop |
+| Files & commands | ✓ Latch | – | ✓ full VM | ✓ its VM |
+| Third-party apps | ~ connectors (gmail, slack) | – | – | ✓ Composio |
+| How-to skills / playbooks | ✓ read on demand | – | – | ✓ `skills/` |
+| MCP endpoint | ✓ Latch is an MCP server | ✓ listed among SDK/CLI/Skill/MCP | ✓ one MCP, a desktop per user id | ~ consumes MCP |
+| **SAFETY & CONTROL** | | | | |
+| Per-request approval | ✓ intents | – access control, not per action | – | ✓ policy guard + takeover |
+| AI reviewer | ✓ Gatekeeper | – | – | – |
+| Sandbox of approved capabilities | ✓ derived profile | – | ✓ the VM | ✓ the VM |
+| Vault usable but unreadable | ✓ | – | – | ~ single-use cards |
+| Audit log | ✓ | – | – | ✓ |
+| Payments / spend limits | ✓ threshold + approval link | – | – | ✓ Stripe Link + spend policy |
+| **MODEL** | | | | |
+| Model supplied | ✓ proxy + allowlist | – | – BYO | – BYO (defaults to Claude) |
+| **OPERATE & DISTRIBUTE** | | | | |
+| Human interface | phone, email, dashboard, marketplace | console, CLI, SDK, MCP | dashboard, CLI, SDK, MCP | CLI + a signup gateway |
+| Multi-user provisioning | ~ lines, signup phrases | ~ identities on demand | ✓ per your user | ✓ gateway page |
+| Marketplace for agents | ✓ Agent Index | – | – | – |
+| Your own image | ✓ pulled by digest | – | ✓ | ✓ |
+| Licensed / self-hosted | hosted; your image | commercial | commercial | ✓ MIT |
+
+---
+
 ## Latch vs Inkbox
 
 Both are "an agent needs more than intelligence" products, and they are **the
