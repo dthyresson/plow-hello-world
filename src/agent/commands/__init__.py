@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-from agent.commands import agenda, echo, story
+from agent.commands import agenda, echo, messages, story
 from agent.commands import help as help_cmd
 from agent.commands import time as time_cmd
 
@@ -29,5 +29,6 @@ COMMANDS = (
     ("story", STORY_REQUEST.search, story.run),
     ("time", time_cmd.matches, time_cmd.run),
     ("agenda", agenda.matches, agenda.run),
+    ("messages", messages.matches, messages.run),
     ("echo", lambda text: True, echo.run),
 )
