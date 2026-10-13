@@ -52,7 +52,7 @@ Latch link.
 The image, and everything above the contract: the reasoning loop, the command
 routing, the guard that decides who may invoke it, the skills it reads, and the
 policy you want where no platform policy reaches. This repo is a small, complete
-example — `src/agent/`, five modules, no framework.
+example — `src/agent/`, a handful of small modules, no framework.
 
 Worth knowing: **the default image is itself a Hermes agent.** `plow-hermes-agent`
 is the Hermes runtime under s6-overlay with the `plow_chat` plugin pinned, so the
@@ -69,6 +69,8 @@ product. That is the whole shape of Plow in one sentence.
 | **Groups, trust, peers** | Threads carry a roster with `role` and `relationship`, per-chat trust (discretion vs full trust), and other Plow agents as participants — so rooms are multi-party, not DMs. |
 | **Payments** | The credential carries `payments:request`, and the agent has a `payment_approval_threshold_usd` (100 by default): a path where Plow releases a banking credential at or below the threshold and sends a single-use approval link above it. |
 | **Connectors** | The minted credential's scopes include `connectors:use`, `gmail:connect` and `slack:connect` — so cloud integrations sit *beside* Latch's Mac access, not inside it. |
+| **Two credentials, never conflated** | `plow-agents login` mints an **account** token (`~/.config/plow/token`, mode 600) which sees every line, every agent and the model catalog. `mint` / `deploy --local` mints a **line-scoped agent** token into `./plow-credentials`, and that is the only one a container ever sees. An agent token cannot list models (`llm:models`) even though it can chat. |
+| **The name is set once** | An agent's name comes from admission — the Agent Index listing, or the last path segment of the image repository — and there is no way to change it afterwards: the agent resource is read-only (`OPTIONS /v1/agents/{uid}` → `405`, `allow: GET`) and no CLI verb renames it. `profile --name` renames the *account*. |
 | **The Agent Index** | Public listings for agents, installed by texting a signup phrase (`Set this up for me: aiworthusing.com/agent-index/<slug>`), with digest promotion and usage reporting to a leaderboard. |
 
 ## Latch, in one line
@@ -83,7 +85,7 @@ tools, rather than tools with policy bolted on.
 | repo | owns |
 |---|---|
 | `plow-pbc/plow-agents` | the developer CLI: login, lines, mint, rotate, revoke, image, deploy |
-| `plow-pbc/plow-hermes-agent` | the base image: boot, `plow-init`, the plugin pin (and the repo map) |
+| `plow-pbc/plow-hermes-agent` | the base image: Hermes under s6-overlay, the `plow_chat` plugin pin, the repo map |
 | `plow-pbc/hermes-plugin-plow` | the `plow_chat` plugin — the reference implementation of the chat contract |
 | `plow-pbc/latch` | the Mac app: the MCP tools, the approval path, the vault |
 

@@ -12,7 +12,7 @@ it is.
 
 ## The shape of the program
 
-Five small modules, split so each reads on its own:
+Small modules, split so each reads on its own:
 
 | file | owns | read it to learn |
 |---|---|---|
@@ -20,7 +20,7 @@ Five small modules, split so each reads on its own:
 | `src/agent/lib/plow.py` | the Plow HTTP contract — identity, chats, ticket, history, send, inference | the wire |
 | `src/agent/commands/` | the replies — one file per command | what the agent says |
 | `src/agent/lib/router.py` | which command a message maps to | how it decides |
-| `src/agent/lib/latch.py` | the relay to the owner's Mac (MCP over HTTP) | how a command reaches a Mac |
+| `src/agent/lib/latch.py` | the relay to the owner's Mac — one MCP `tools/call` (`Latch.call`) | how a command reaches a Mac |
 | `src/agent/runtime.py` | the connection and its lifecycle | how it stays online, and who may use it |
 
 `runtime.py` is the shell around the rest, and `__main__.py` starts it. A
@@ -29,12 +29,13 @@ message's path, top to bottom:
 ```
 main()             config guard, signal handlers, run()
   Agent.run()      the reconnect loop; owns one session at a time
-    Agent.session()  one connection: reach -> ticket -> socket -> backfill -> frames
+    Agent.session()  one connection: identify -> reach -> ticket -> socket -> backfill -> frames
       Agent.on_frame()   route one WebSocket frame
       Agent.on_message() filter, authorize, reply, checkpoint
         Agent.respond()  hand the text to the router
           router.route()   -> a command in commands/
             story()          -> plow.Plow.complete()   (the one inference call)
+            agenda()/messages() -> lib/latch.py        (MCP to the owner's Mac)
 ```
 
 Every arrow is a module boundary, and each module can be read without the others.
@@ -88,8 +89,6 @@ when a session ends, decides how long to wait before trying again.
 while not self._stop.is_set():
     try:
         async with aiohttp.ClientSession(...) as http:
-            if attempt == 0:
-                await self.identify(http)     # once per fresh start, not per reconnect
             await self.session(http)          # blocks until the socket closes
     except CredentialRefused:
         return                                # terminal — stop the process
@@ -117,6 +116,7 @@ Three deliberate details:
 ## One session — `session()`
 
 ```python
+await self.plow.identify(http)          # who am I, and is a Mac attached?
 await self.refresh_chats(http)          # re-read the grant on every connection
 ticket = await self.plow.ticket(http)    # fresh, single-use, 60s
 url = self.plow.ws_url(ticket)
@@ -138,10 +138,13 @@ timeout would kill a long-lived WebSocket.
 
 ## Identity and reach
 
-**`identify()` / `GET /v1/agents/me`** — logs the agent uid and line number.
-A `404` is the documented "this token is not one agent" (e.g. a multi-line
-grant); it is swallowed because it is not a failure, just no identity answer.
-Anything else goes through `_check`.
+**`identify()` / `GET /v1/agents/me`** — logs the agent uid and line number, and
+re-reads `mcp_url`, i.e. whether a Mac is attached (`mac=connected|none`). That is
+asked on every connect rather than once per process because a Mac can attach after
+the agent booted. A `404` is the documented "this token is not one agent" (e.g. a
+multi-line grant); it is swallowed because it is not a failure, just no identity
+answer. Anything else goes through `check()` in `lib/plow.py` — the one place a
+status code becomes a decision.
 
 **`refresh_chats()` / `GET /v1/chats`** — caches the granted chats on `self` and
 picks a home. The grant **is** the access control; there is no per-chat config
@@ -208,11 +211,12 @@ match wins, so the catch-all comes last:
 ```python
 # src/agent/commands/__init__.py -- order IS the policy: first match wins
 COMMANDS = (
-    ("help",   lambda text: text.lower() in ("help", "commands", "?"), help_cmd.run),
-    ("story",  STORY_REQUEST.search,                 story.run),
-    ("time",   time_cmd.matches,                     time_cmd.run),
-    ("agenda", agenda.matches,                       agenda.run),
-    ("echo",   lambda text: True,                    echo.run),   # catch-all, last
+    ("help",     lambda text: text.lower() in ("help", "commands", "?"), help_cmd.run),
+    ("story",    STORY_REQUEST.search,             story.run),
+    ("time",     time_cmd.matches,                 time_cmd.run),
+    ("agenda",   agenda.matches,                   agenda.run),
+    ("messages", messages.matches,                 messages.run),
+    ("echo",     lambda text: True,                echo.run),   # catch-all, last
 )
 ```
 
@@ -223,10 +227,10 @@ name, handler = route(COMMANDS, text)
 return await handler(self.plow, http, text)
 ```
 
-Routing **first** is the point: only a story request reaches the model, so the
-default reply costs nothing. The match is word-bounded — `\b(story|stories|
-tale|tales|bedtime)\b` — because "history" contains "story" and a substring test
-would send it to the model.
+Routing **first** is the point: only a story request reaches the model, and only
+`agenda`/`messages` reach your Mac, so the default reply costs nothing and touches
+nothing. The match is word-bounded — `\b(story|stories|tale|tales|bedtime)\b` —
+because "history" contains "story" and a substring test would send it to the model.
 
 ### How Plow inference is called — `plow.Plow.complete()`
 
@@ -236,7 +240,7 @@ provider config:
 
 ```
 POST {PLOW_API_BASE}/v1/chat/completions
-Authorization: Bearer <PLOW_AGENT_TOKEN>          # == AUTH, reused verbatim
+Authorization: Bearer <PLOW_AGENT_TOKEN>          # the one credential this holds
 {
   "model": "anthropic/claude-sonnet-5",           # PLOW_MODEL overrides
   "max_tokens": 500,
@@ -268,6 +272,34 @@ To add a command: write a module in `src/agent/commands/` exposing
 `async def run(plow, http, text) -> str`, then add one row to `COMMANDS` in that
 directory's `__init__.py`. Nothing in `runtime.py` or `router.py` changes — that
 boundary is the point of the split.
+
+### How the owner's Mac is reached — `lib/latch.py`
+
+The last outbound integration, and the only one that leaves the platform.
+`GET /v1/agents/me` returns an `mcp_url` — that is the relay — and calling through
+it is one JSON-RPC `tools/call`:
+
+```
+{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+ "params": {"name": "plow-messages", "arguments": {"subcommand": "search", ...}}}
+```
+
+Four details, each of which cost real debugging time:
+
+- **Stateless.** There is no `initialize` handshake to perform first; a bare
+  `tools/call` is answered. That is why the whole client is about sixty lines.
+- **The answer may be JSON or SSE.** Latch replies as `text/event-stream`, so the
+  body is unwrapped from its `data:` lines before parsing. Both shapes are accepted.
+- **A refusal is a sentence, not an error code.** A provider the Mac has disabled
+  returns `isError: true` with a human explanation — and it arrives *before* any
+  approval card, because a disabled provider is refused before an intent exists.
+- **Redirects are never followed.** The call carries the bearer, so following one
+  would hand the credential to wherever it pointed.
+
+Two commands use it, and neither knows anything about the Mac: `agenda` ("what's
+next") reads the calendar, and `messages` ("last message from X") resolves a name
+to handles and then searches the message archive. Phrasing a request is the agent's
+business; whether it is permitted is the Mac's.
 
 ## Backfill — catching up after a gap
 
@@ -301,9 +333,9 @@ if resp.status in (408, 424) or resp.status >= 500:
 ```
 
 A `408`/`424`/`5xx` can arrive **after** Plow accepted the POST. Treating that as
-a clean failure invites a retry that sends the message twice to a real phone. So
-the agent reports it and stops — the safe direction. Anything else non-2xx
-raises through `_check`.
+a clean failure invites a retry that sends the message twice to a real phone. So the
+agent reports it and stops — the safe direction. Anything else non-2xx
+raises through `check()`.
 
 ## Durable state
 
@@ -331,12 +363,18 @@ connect: it anchors at the newest message instead of trying to backfill.
 | 408/424/5xx = delivery unknown | never double-send to a real phone |
 | empty grant is fine; socket still connects | a new agent has no chat until first text |
 | re-read reach on every connect | the grant can change while you are away |
+| re-read identity on every connect | a Mac can attach while the agent runs |
+| the guard runs before any command | reachability is a spend surface once a model is wired in |
 
 ## What is deliberately not here
 
 The Hermes runtime adds a lot on top of this contract: tool calling, sessions,
 per-chat recall, group trust and disclosure rules, media fetch/upload, voice
-memos, goals, the email line, MCP. None of it is required to be a Plow agent —
-this file is the floor. Everything above it (the socket, the reconnect curve, the
-checkpoint, the send path) is the part you would otherwise have to rebuild, and
-is exactly what is worth reading before you add to it.
+memos, goals, the email line, and a full MCP client with its own tool registry.
+None of it is required to be a Plow agent — this file is the floor. What this repo
+does add is the *narrowest useful* version of two of them: one model call
+(`Plow.complete()`) and one relay call (`Latch.call()`), about sixty lines
+each, because those two are what make an agent feel like it can do anything at all.
+Everything above it (the socket, the reconnect curve, the checkpoint, the send path)
+is the part you would otherwise have to rebuild, and is exactly what is worth
+reading before you add to it.

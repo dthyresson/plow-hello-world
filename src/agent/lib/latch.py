@@ -84,7 +84,11 @@ class Latch:
                    "Accept": "application/json, text/event-stream"}
         log.info("latch call: %s", name)
         try:
-            async with http.post(self.plow.mcp_url, json=body, headers=headers) as resp:
+            # allow_redirects is off on purpose: this request carries the bearer,
+            # so following a redirect would hand the credential to whatever the
+            # redirect points at. A redirect becomes a parse failure instead.
+            async with http.post(self.plow.mcp_url, json=body, headers=headers,
+                                 allow_redirects=False) as resp:
                 if resp.status >= 400:
                     raise LatchError(f"the relay answered HTTP {resp.status}")
                 raw = await resp.text()

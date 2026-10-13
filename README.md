@@ -665,33 +665,45 @@ The relay endpoint, plus the bearer it already has:
   rather than pretending.
 - **bearer** — `PLOW_AGENT_TOKEN`, the same credential every other call uses.
 
-A call is then just JSON-RPC `tools/call` over HTTP:
+A call is then just JSON-RPC `tools/call` over HTTP. This is the whole client, and
+it is the real thing from `src/agent/lib/latch.py` (trimmed to the call):
 
 ```python
-MCP_URL = os.environ.get("PLOW_MCP_URL")          # None = no Mac connected
+class Latch:
+    def __init__(self, plow):                 # borrows the URL and the bearer
+        self.plow = plow
 
-async def relay_tool(http, name, arguments):
-    """One JSON-RPC tools/call through Latch's relay to the Mac."""
-    headers = {**AUTH, "Content-Type": "application/json",
-               "Accept": "application/json, text/event-stream"}
-    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-            "params": {"name": name, "arguments": arguments}}
-    async with http.post(MCP_URL, json=body, headers=headers) as resp:
-        raw = await resp.text()
-    if raw.lstrip().startswith("event:") or "data:" in raw:     # SSE-wrapped reply
-        raw = "\n".join(line[5:].strip() for line in raw.splitlines() if line.startswith("data:"))
-    result = json.loads(raw)["result"]
-    return result.get("structuredContent") or json.loads(
-        next(c["text"] for c in result["content"] if c.get("type") == "text"))
+    @property
+    def available(self):                      # no URL means no Mac
+        return bool(self.plow.mcp_url)
+
+    async def call(self, http, name, arguments):
+        body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": name, "arguments": arguments}}
+        headers = {**self.plow.auth, "Accept": "application/json, text/event-stream"}
+        async with http.post(self.plow.mcp_url, json=body, headers=headers,
+                             allow_redirects=False) as resp:   # never hand the bearer on
+            if resp.status >= 400:
+                raise LatchError(f"the relay answered HTTP {resp.status}")
+            raw = await resp.text()
+        if "data:" in raw:                                     # SSE-wrapped reply
+            raw = "\n".join(l[5:].strip() for l in raw.splitlines()
+                            if l.startswith("data:"))
+        result = json.loads(raw).get("result") or {}
+        if result.get("isError"):
+            raise LatchError(_refusal(result))                 # a sentence, not a code
+        return _payload(result)
 ```
 
-Then a command that calls it — the crudest useful version:
+Then a command that uses it — the crudest useful version:
 
 ```python
-if text.startswith("run:"):
-    out = await relay_tool(http, "plow_run_command",
-                           {"argv": ["/bin/echo", text[4:].strip()], "goal": "echo"})
-    return out.get("output", "(no output)")
+latch = Latch(plow)
+if not latch.available:
+    return "No Mac is connected to this agent right now."
+out = await latch.call(http, "plow_run_command",
+                       {"argv": ["/bin/echo", "hi from my Mac"], "goal": "echo"})
+return out.get("output", "(no output)")
 ```
 
 Text `run: hi from my Mac`, approve the prompt on the Mac, and the agent answers
