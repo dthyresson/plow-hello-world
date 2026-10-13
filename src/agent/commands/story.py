@@ -12,7 +12,8 @@ STORY_SYSTEM = (
     "two or three short paragraphs about the animal asked for, suitable for "
     "bedtime. Plain text only: no title, no preamble like 'Here is a story', no "
     "questions and no offer to continue. If no animal is named, choose a friendly "
-    "one and name it in the first sentence."
+    "one. Give the animal an invented name, varied from story to story -- and not "
+    "the obvious 'Pip'."
 )
 
 
