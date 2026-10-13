@@ -1,5 +1,13 @@
 # Comparisons
 
+> **AI-written — verify before you rely on it.** This document, the agent code, and
+> the research behind them were produced with a large language model. Where a claim
+> was checked, the check is named nearby; where something was verified against a live
+> system, it says so. Everything else is prose a model wrote, and mistakes are
+> possible — so confirm anything you intend to depend on. That goes double for the
+> other products here: every claim about them comes from their public pages on the
+> dates in [Sources](#sources), and may be out of date or simply wrong.
+
 Plow and Latch against three neighbours, across purpose, technology, UX and
 users. Written from the public pages fetched **2026-10-13** and this repo's own
 probing — so treat vendor feature claims as claims, and note that

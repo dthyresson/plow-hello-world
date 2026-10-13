@@ -1,5 +1,11 @@
 # hello-world — a minimal, Hermes-free Plow agent
 
+> **AI-written — verify before you rely on it.** This document, the agent code, and
+> the research behind them were produced with a large language model. Where a claim
+> was checked, the check is named nearby; where something was verified against a live
+> system, it says so. Everything else is prose a model wrote, and mistakes are
+> possible — so confirm anything you intend to depend on.
+
 A single-file agent that answers over Plow Chat. It reads `PLOW_API_BASE` and
 `PLOW_AGENT_TOKEN`, learns who it is and which chats it may serve, holds the
 granted WebSocket, and replies to each message: a small command router that

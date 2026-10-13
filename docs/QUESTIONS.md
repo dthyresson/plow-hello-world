@@ -1,5 +1,11 @@
 # Open questions
 
+> **AI-written — verify before you rely on it.** This document, the agent code, and
+> the research behind them were produced with a large language model. Where a claim
+> was checked, the check is named nearby; where something was verified against a live
+> system, it says so. Everything else is prose a model wrote, and mistakes are
+> possible — so confirm anything you intend to depend on.
+
 Design questions worth answering deliberately, before they get answered by
 accident. Each entry is a **question**, the context that makes it live, the
 **options**, and what would actually decide it. Not a decision — a place to keep

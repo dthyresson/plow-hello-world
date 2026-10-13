@@ -1,5 +1,11 @@
 # Development lifecycle for a Plow agent
 
+> **AI-written — verify before you rely on it.** This document, the agent code, and
+> the research behind them were produced with a large language model. Where a claim
+> was checked, the check is named nearby; where something was verified against a live
+> system, it says so. Everything else is prose a model wrote, and mistakes are
+> possible — so confirm anything you intend to depend on.
+
 How a change to the agent code travels from your laptop to a live agent people text
 on Plow — and specifically, **what happens to the running "prod" agent when you
 change the code**. (Short answer: nothing, until you redeploy. Why is below.)
