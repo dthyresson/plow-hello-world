@@ -7,6 +7,7 @@ services:
     environment:
       AGENT_STATE_DIR: /data
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PLOW_MODEL: ${PLOW_MODEL:-anthropic/claude-sonnet-5}
       PLOW_ALLOWED_HANDLES: ${PLOW_ALLOWED_HANDLES:-}
     volumes:
       - agent-state:/data

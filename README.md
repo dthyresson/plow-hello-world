@@ -200,6 +200,7 @@ environment variables from `./plow-credentials`.
 | `PLOW_API_BASE` | no | API root, no `/v1` (default `https://api.plow.co`). In `plow-credentials`. |
 | `PLOW_AGENT_TOKEN` | **yes** | the line-scoped bearer. In `plow-credentials`. |
 | `PLOW_HOME_CHANNEL` | no | a `cht_…` home chat; otherwise the agent picks its solo owner DM |
+| `PLOW_MODEL` | no | inference model id (default `anthropic/claude-sonnet-5`) — any id from the allowlist, see [Inference](#inference-the-model) |
 | `AGENT_STATE_DIR` | no | where the checkpoint file lives (default `./plow-state`; compose sets `/data`) |
 | `LOG_LEVEL` | no | `DEBUG`, `INFO` (default), `WARNING` or `ERROR` — see [Logs](#logs) |
 | `PLOW_ALLOWED_HANDLES` | no | comma-separated handles besides the owner allowed to invoke the agent — see [Who may invoke the agent](#who-may-invoke-the-agent) |
@@ -660,23 +661,33 @@ INFO outbound cht_…: 'hello world. You said: Dt'
 
 INFO inbound cht_… from member role=owner Sam (+15550100001): 'tell me a story about a penguin'
 INFO route: story
+INFO inference ok: model=claude-sonnet-5 finish=stop tokens in/out/total=126/209/335 cached=0 in 3728ms
 INFO inference reply (1096 chars): Little Pip the penguin waddled across the snow…
 INFO outbound cht_…: 'Little Pip the penguin waddled across the snow…'
 ```
 
 At `LOG_LEVEL=DEBUG` you also get the chat roster on every invocation, the exact
-prompt sent to the model, and a refused sender:
+prompt sent to the model, the raw `usage` block, and a refused sender:
 
 ```
 DEBUG cht_… roster: agent rel=self Willow (+15550100002); member role=owner Sam (+15550100001)
 DEBUG inference request: model=anthropic/claude-sonnet-5 system="You tell very short…" user='tell me a story about a penguin'
+DEBUG inference response: id=chatcmpl-… created=1791909592 usage={'prompt_tokens': 126, …}
 INFO ignored cht_… from member rel=wife Anna (+14155550000): not the owner and not allow-listed
 ```
 
-Two notes on the inference lines: `inference reply` prints the **full text**, so a
-story is a multi-paragraph log entry, and the reply legitimately appears twice —
-once as what the model said, once as `outbound`, which is what was sent after
-trimming.
+What the inference lines tell you:
+
+- **`inference ok`** — the model Plow **actually returned** (not the id you asked
+  for), `finish` (`stop` = complete; `length` = it hit `max_tokens` and the story
+  was cut off), tokens `in/out/total`, `cached` prompt tokens, and the wall-clock
+  latency of the request.
+- **No cost figure.** The response carries tokens and cache counts but no price —
+  Plow's dashboard owns spend. `cached` is the cost signal worth watching: a
+  cached prompt is billed far cheaper than a cold one.
+- **`inference reply`** — the **full text**, so a story is a multi-paragraph log
+  entry. It legitimately appears twice: once as what the model said, once as
+  `outbound`, which is what was sent after trimming.
 
 Set how much it logs with `LOG_LEVEL` — `DEBUG`, `INFO` (default), `WARNING`, or
 `ERROR`:
@@ -767,9 +778,14 @@ phone.
 
 ### Picking a model — the catalog
 
-`PLOW_MODEL` chooses it (default `anthropic/claude-sonnet-5`). Ids are
-**provider-prefixed** and drawn from a fixed allowlist — a bare or unknown name
-is refused with `"Model '…' is not allowed"`:
+`PLOW_MODEL` chooses it (default `anthropic/claude-sonnet-5`):
+
+```sh
+PLOW_MODEL=z-ai/glm-5.2 docker compose up -d --build   # or set it in ./plow-credentials
+```
+
+Ids are **provider-prefixed** and drawn from a fixed allowlist — a bare or unknown
+name is refused with `"Model '…' is not allowed"`:
 
 | id | notes |
 |---|---|
@@ -782,6 +798,12 @@ is refused with `"Model '…' is not allowed"`:
 | `z-ai/glm-5.2` | 1M; text only |
 | `z-ai/glm-5.3-flash` | 1.3M |
 | `google/gemini-3.8-flash` | 1M; all modalities |
+
+Two notes from a live check. The `model=` in the `inference ok` log is what Plow
+**returned**, which is not always the id you sent — `anthropic/claude-sonnet-5`
+comes back bare as `claude-sonnet-5`, while `z-ai/glm-5.2` and
+`google/gemini-3.8-flash` come back prefixed. And `finish=length` means the model
+hit `max_tokens` and was cut off — not that it finished.
 
 Scope note: the **agent** token may call completions (`llm:chat`) but may **not**
 list models — `GET /v1/models` answers `403 … llm:models`. Read the catalog live

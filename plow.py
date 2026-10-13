@@ -11,6 +11,7 @@ same contract.
 from __future__ import annotations
 
 import logging
+import time
 
 log = logging.getLogger("agent")
 
@@ -139,6 +140,7 @@ class Plow:
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": user}],
         }
+        started = time.monotonic()
         try:
             async with http.post(f"{self.base}/v1/chat/completions", json=payload,
                                  headers={**self.auth, "Content-Type": "application/json"}) as resp:
@@ -147,15 +149,36 @@ class Plow:
                 if resp.status == 400:
                     raise ModelUnavailable(f"Plow refused the model {model!r}")
                 check(resp)
-                choices = (await resp.json(content_type=None)).get("choices") or []
-                text = ((choices[0].get("message") if choices else {}) or {}).get("content") or ""
+                body = await resp.json(content_type=None)
         except (CredentialRefused, ModelUnavailable):
             raise
         except Exception as exc:
-            log.warning("inference failed: %s: %s", type(exc).__name__, exc)
+            log.warning("inference failed after %.0fms: %s: %s",
+                        (time.monotonic() - started) * 1000, type(exc).__name__, exc)
             raise ModelUnavailable("the model request failed") from exc
-        text = text.strip()
-        # The reply text itself, so the logs show what the model actually said.
-        # (send() logs it again as `outbound`, which is what was sent.)
-        log.info("inference reply (%d chars): %s", len(text), text)
+        elapsed_ms = (time.monotonic() - started) * 1000
+        choices = body.get("choices") or []
+        choice = (choices[0] if choices else {}) or {}
+        text = ((choice.get("message") or {}).get("content") or "").strip()
+        self._log_inference(body, choice, text, elapsed_ms)
         return text
+
+    @staticmethod
+    def _log_inference(body, choice, text, elapsed_ms):
+        """What the call cost and how fast, then the reply itself.
+
+        Tokens and cache counts come from the response's `usage`; latency is
+        measured around the request. There is **no cost field** in the response
+        -- Plow's dashboard owns spend -- so the useful cost signal is the token
+        counts, `cached` in particular: a cached prompt is billed far cheaper
+        than a cold one.
+        """
+        usage = body.get("usage") or {}
+        cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+        log.info("inference ok: model=%s finish=%s tokens in/out/total=%s/%s/%s cached=%s in %.0fms",
+                 body.get("model"), choice.get("finish_reason"),
+                 usage.get("prompt_tokens"), usage.get("completion_tokens"),
+                 usage.get("total_tokens"), cached, elapsed_ms)
+        log.debug("inference response: id=%s created=%s usage=%r",
+                  body.get("id"), body.get("created"), usage)
+        log.info("inference reply (%d chars): %s", len(text), text)
