@@ -91,7 +91,7 @@ daemon", the engine is down — `colima start`.
 plow-agents login
 ```
 
-It prints a code and a number:
+It prints a code and a number, then **waits**:
 
 ```
   Text  Plow Activate: XXXXX  to  +1XXXXXXXXXX
@@ -99,8 +99,18 @@ It prints a code and a number:
 Waiting for that text ...
 ```
 
-Text **exactly that code** to that number. On success it writes your **account
-token** to `~/.config/plow/token` (mode 600).
+**The CLI does not send that text — you do.** From your phone, in Messages (or
+any SMS app), text the code exactly as printed to that number:
+
+```
+Text  Plow Activate: XXXXX
+```
+
+It then polls Plow until your text lands, flips `pending` → `verified`, writes
+your **account token** to `~/.config/plow/token` (mode 600), and exits. Sitting
+at `Waiting for that text ...` does nothing by itself — it is waiting on *your*
+text, so open your phone and send it while the command is still running. (You
+have 15 minutes before the code expires.)
 
 > **The trap that eats most of the time here.** Every `plow-agents login`
 > mints a *fresh* code **and** a secret, and the running process only accepts
