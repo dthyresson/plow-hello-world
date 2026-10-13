@@ -44,6 +44,7 @@ src/agent/
 | `.gitignore`, `.dockerignore` | both exclude `/plow-credentials` — the credential never enters git or the image |
 | `docs/HOW-IT-WORKS.md` | a walkthrough of the code, top to bottom |
 | `docs/PLATFORM.md` | what Plow is — the platform around the agent, in one page |
+| `docs/COMPARISONS.md` | Plow and Latch against Inkbox, Maritime and open-instinct |
 | `docs/LIFECYCLE.md` | dev → test → prod, and how a change reaches the live agent |
 | `docs/QUESTIONS.md` | open design questions, each with its options |
 | `README.md` | this file: setup, launch, start/stop, logs, deploy, troubleshooting |
