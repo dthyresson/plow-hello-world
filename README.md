@@ -2,7 +2,9 @@
 
 A single-file agent that answers over Plow Chat. It reads `PLOW_API_BASE` and
 `PLOW_AGENT_TOKEN`, learns who it is and which chats it may serve, holds the
-granted WebSocket, and replies to every inbound message with a canned greeting.
+granted WebSocket, and replies to each message: a small command router that
+echoes by default, lists what it can do on `help`, and tells a short animal story
+— through Plow's own inference — when asked.
 
 No Hermes runtime, no framework — one file, one dependency (`aiohttp`). The
 whole Plow contract is implemented directly, so you can see exactly what an
@@ -10,9 +12,18 @@ agent does.
 
 ## What's here
 
+The code is five small modules, split so each reads on its own — `config.py`
+(settings), `plow.py` (the Plow API), `commands.py` (the replies), `router.py`
+(which command answers), `agent.py` (the connection). `HOW-IT-WORKS.md` walks
+them in order.
+
 | file | what it is |
 |---|---|
-| `agent.py` | the agent: identity, reach, ticket, socket, reply, reconnect, checkpoint |
+| `agent.py` | the connection and its lifecycle: socket, reconnect, checkpoint, the guard |
+| `plow.py` | the Plow HTTP contract: identity, chats, ticket, history, send, inference |
+| `commands.py` | the replies — one function per command (echo, help, story) |
+| `router.py` | which command a message is routed to |
+| `config.py` | every environment setting, in one place |
 | `Dockerfile` | `python:3.11-slim`, runs `agent.py` as PID 1 |
 | `requirements.txt` | `aiohttp` (HTTP **and** WebSocket in one dep) |
 | `compose.yml` | how it runs locally: builds this dir, loads `./plow-credentials`, `/data` volume |
@@ -154,11 +165,14 @@ first text its line. The socket is already open and waiting.
 
 ## Test it
 
-Text the number `plow-agents lines` shows for your line. The agent replies:
+Text the number `plow-agents lines` shows for your line. What you get back:
 
-```
-hello world. You said: <your message>
-```
+| text this | get |
+|---|---|
+| anything at all | `hello world. You said: …` (echo) |
+| `help` | the command list |
+| `tell me a story about a penguin` | a short story, generated with Plow inference |
+| `i want a bedtime tale about a lion` | …same, any animal |
 
 No inbound ports are published — the agent dials out to Plow, which is why
 `compose.yml` exposes none.
@@ -697,19 +711,33 @@ docker compose down -v            # stop the container and drop its state volume
 
 ## Inference (the model)
 
-The agent ships with no model — `respond()` returns a canned string. When you
-give it one, there are two options.
+The agent already uses **Plow's inference** — for story requests, and nothing
+else. `respond()` routes first (echo / help / story) and only the story branch
+calls the model, so the default reply stays free. This section is how that call
+works, and where to point it instead.
 
-### Option A — Plow's inference (no key needed)
+### How the agent calls Plow inference
 
-Plow serves an **OpenAI-shaped** chat endpoint you already hold a credential for:
+`Plow.complete()` in `plow.py` is the entire integration — one HTTP request,
+OpenAI-shaped, on the credential the agent already holds. No SDK, no API key, no
+provider config:
 
 ```
-POST {PLOW_API_BASE}/v1/chat/completions     # same PLOW_AGENT_TOKEN, no API key
+POST {PLOW_API_BASE}/v1/chat/completions
+Authorization: Bearer <PLOW_AGENT_TOKEN>          # the agent's own credential (== AUTH)
+{
+  "model": "anthropic/claude-sonnet-5",           # PLOW_MODEL overrides this
+  "max_tokens": 500,
+  "messages": [
+    {"role": "system", "content": <the story instructions>},
+    {"role": "user",   "content": <the owner's text>}
+  ]
+}
+-> {"choices": [{"message": {"content": "<the story>"}}], ...}
 ```
 
-Billed to your Plow account. It is what the hosted runtimes use, and it works
-from this agent's own token right now:
+The reply is read from `choices[0].message.content` and goes back over the socket
+as an ordinary message. It works from this agent's own token right now:
 
 ```sh
 curl -sS "$PLOW_API_BASE/v1/chat/completions" \
@@ -718,9 +746,17 @@ curl -sS "$PLOW_API_BASE/v1/chat/completions" \
 # -> {"model":"claude-sonnet-5", "choices":[{"message":{"content":"pong"}}], ...}
 ```
 
-**The catalog** (`GET /v1/models`). Ids are **provider-prefixed** and drawn from a
-fixed allowlist — a bare or unknown name is refused with
-`"Model '…' is not allowed"`:
+It is billed to your Plow account, and failures are mapped to a sentence rather
+than swallowed: `402` = out of credits, `400` = the allowlist refused the model
+id, `401` = terminal (the agent stops), anything else transient = one line back
+to the chat. The model's output is **untrusted text** you are about to send to a
+phone.
+
+### Picking a model — the catalog
+
+`PLOW_MODEL` chooses it (default `anthropic/claude-sonnet-5`). Ids are
+**provider-prefixed** and drawn from a fixed allowlist — a bare or unknown name
+is refused with `"Model '…' is not allowed"`:
 
 | id | notes |
 |---|---|
@@ -738,29 +774,29 @@ Scope note: the **agent** token may call completions (`llm:chat`) but may **not*
 list models — `GET /v1/models` answers `403 … llm:models`. Read the catalog live
 with your account token (`~/.config/plow/token`), or use the table above.
 
+### Adding more commands
+
+Commands live in `commands.py`; which message reaches which one lives in
+`router.py`. A "joke" command is two small additions:
+
+```python
+# commands.py — a command is `async def handler(plow, http, text) -> str`
+async def joke(plow, http, text):
+    return await plow.complete(http, model=config.MODEL,
+                               system="Tell one short, clean joke.", user=text,
+                               max_tokens=200)
+
+# router.py — one row, above the echo catch-all
+("joke", lambda t: t.lower().startswith("joke"), joke),
+```
+
+Nothing in `agent.py` changes. Whatever a command routes to `complete()` spends
+inference; whatever it answers inline is free. And the guard still matters: a
+stranger's text routed to the model is billed to you — see
+[Who may invoke the agent](#who-may-invoke-the-agent).
+
 ### Option B — your own provider
 
 Nothing forces you onto Plow's inference. This is your code: call Anthropic,
 OpenAI, a local model, anything, with whatever key you like. Plow only requires
 that the container *runs*; how it thinks is yours.
-
-### Wiring it in
-
-Replace the body of `respond()` — it now needs the `http` session, so thread it
-through from `on_message`:
-
-```python
-async def respond(self, http, message):
-    async with http.post(f"{BASE}/v1/chat/completions",
-                         headers={**AUTH, "Content-Type": "application/json"},
-                         json={"model": "anthropic/claude-sonnet-5",
-                               "messages": [{"role": "user", "content": message.get("body", "")}],
-                               "max_tokens": 200}) as resp:
-        _check(resp)
-        return (await resp.json())["choices"][0]["message"]["content"]
-```
-
-Two things you inherit by doing this: a stranger's text is now **billed
-inference**, so keep the guard from
-[Who may invoke the agent](#who-may-invoke-the-agent); and the model's output is
-untrusted text you are about to send to a phone.

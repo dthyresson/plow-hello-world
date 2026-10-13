@@ -6,20 +6,31 @@ it is.
 
 ## The shape of the program
 
-`agent.py` is one class and one entry point. Reading order:
+Five small modules, split so each reads on its own:
+
+| file | owns | read it to learn |
+|---|---|---|
+| `config.py` | every environment setting | where a value comes from |
+| `plow.py` | the Plow HTTP contract — identity, chats, ticket, history, send, inference | the wire |
+| `commands.py` | the replies — one function per command | what the agent says |
+| `router.py` | which command a message maps to | how it decides |
+| `agent.py` | the connection and its lifecycle | how it stays online, and who may use it |
+
+`agent.py` is the shell around the rest — one class and one entry point. A
+message's path, top to bottom:
 
 ```
 main()             config guard, signal handlers, run()
   Agent.run()      the reconnect loop; owns one session at a time
     Agent.session()  one connection: reach -> ticket -> socket -> backfill -> frames
       Agent.on_frame()   route one WebSocket frame
-      Agent.on_message() filter, reply, checkpoint
-        Agent.respond()  the "brain" (swap this for a model)
+      Agent.on_message() filter, authorize, reply, checkpoint
+        Agent.respond()  hand the text to the router
+          router.route()   -> a command in commands.py
+            story()          -> plow.Plow.complete()   (the one inference call)
 ```
 
-Everything else is helpers: the HTTP calls (`identify`, `refresh_chats`,
-`mint_ticket`, `history`, `send`), the durable checkpoint (`_load_checkpoints`,
-`_save_checkpoint`), and the status seam (`_check`).
+Every arrow is a module boundary, and each module can be read without the others.
 
 ## The lifecycle, start to finish
 
@@ -31,7 +42,7 @@ Everything else is helpers: the HTTP calls (`identify`, `refresh_chats`,
   │
   ├─ refresh_chats()   GET  /v1/chats            what may I serve
   │
-  ├─ mint_ticket()     POST /v1/ws/ticket        single-use ticket (60s)
+  ├─ plow.ticket()     POST /v1/ws/ticket        single-use ticket (60s)
   │
   ├─ ws_connect()      WS   /v1/ws?ticket=...    the inbound channel
   │
@@ -100,8 +111,8 @@ Three deliberate details:
 
 ```python
 await self.refresh_chats(http)          # re-read the grant on every connection
-ticket = await self.mint_ticket(http)   # fresh, single-use, 60s
-url = f"{BASE.replace('http', 'ws', 1)}/v1/ws?ticket={ticket}"
+ticket = await self.plow.ticket(http)    # fresh, single-use, 60s
+url = self.plow.ws_url(ticket)
 async with http.ws_connect(url, heartbeat=30) as ws:
     self.up_since = time.monotonic()    # used by run()'s health check
     for chat_uid in self.chats:
@@ -176,22 +187,74 @@ value and what each means.
 additionally prints the whole chat roster (`_roster()`). That is what makes "who
 texted, and were they allowed" a question the logs answer without a debugger.
 
-Then: `respond()` produces the text, `send()` posts it, and finally
-`_save_checkpoint()` records the uid. The checkpoint is written **last**, after
-the reply — a crash mid-turn replays the message rather than dropping it.
+Then: `respond()` routes the text to its command, `plow.send()` posts the reply,
+and finally `_save_checkpoint()` records the uid. The checkpoint is written
+**last**, after the reply — a crash mid-turn replays the message rather than
+dropping it.
 
-### `respond()` — the brain
+### `router.py` — what a message is
 
-One function, canned:
+The router decides what a message *is* before anything costly happens:
 
 ```python
-return f"hello world. You said: {text}"
+ROUTES = (
+    ("help",  lambda t: t.lower() in ("help", "commands", "?"), help_command),
+    ("story", STORY_REQUEST.search,                            story),
+    ("echo",  lambda t: True,                                  echo),   # catch-all
+)
 ```
 
-This is the seam. To make it think, replace the return with a call to
-`POST {PLOW_API_BASE}/v1/chat/completions` (an OpenAI-compatible LiteLLM proxy,
-same bearer). Nothing else changes — the socket, dedupe, checkpointing and send
-path already work.
+…and `Agent.respond()` is now just "hand it to the router, run what it picks":
+
+```python
+name, handler = route(text)
+return await handler(self.plow, http, text)
+```
+
+Routing **first** is the point: only a story request reaches the model, so the
+default reply costs nothing. The match is word-bounded — `\b(story|stories|
+tale|tales|bedtime)\b` — because "history" contains "story" and a substring test
+would send it to the model.
+
+### How Plow inference is called — `plow.Plow.complete()`
+
+The entire model integration is one method in `plow.py`: one HTTP request,
+OpenAI-shaped, on the credential the agent already holds. No SDK, no API key, no
+provider config:
+
+```
+POST {PLOW_API_BASE}/v1/chat/completions
+Authorization: Bearer <PLOW_AGENT_TOKEN>          # == AUTH, reused verbatim
+{
+  "model": "anthropic/claude-sonnet-5",           # PLOW_MODEL overrides
+  "max_tokens": 500,
+  "messages": [
+    {"role": "system", "content": <the story instructions>},
+    {"role": "user",   "content": <the owner's text>}
+  ]
+}
+-> {"choices": [{"message": {"content": "<the story>"}}], ...}
+```
+
+The reply is read from `choices[0].message.content` and then travels back over
+the socket as an ordinary message. The call is **billed to the Plow account**;
+the agent token carries `llm:chat` (so it may call this) but not `llm:models`
+(so it cannot list the catalog — the README carries the model list).
+
+Failures are mapped to a sentence the owner can act on rather than swallowed:
+`402` is an empty Plow balance, `400` is a model id the allowlist refuses,
+anything else transient becomes one line back in the chat. A `401` is still
+terminal and propagates — the whole agent stops, which is `run()`'s rule
+everywhere.
+
+Two consequences worth stating: what the model returns is **untrusted text** —
+it is sent to a phone and nothing more — and every message routed to the model
+is **spend**, which is why the guard in `_authorized()` (and the router itself)
+matter more once a model is wired in.
+
+To add a command: write it in `commands.py` as an `async def handler(plow, http,
+text) -> str`, then add one row to `ROUTES` in `router.py`. Nothing in `agent.py`
+changes — that boundary is the point of the split.
 
 ## Backfill — catching up after a gap
 
@@ -199,7 +262,7 @@ A WebSocket does not replay frames, so anything sent while the socket was down
 is simply missed. `backfill()` closes that hole:
 
 ```python
-messages = await self.history(http, chat_uid)   # newest page, newest first
+messages = await self.plow.history(http, chat_uid, config.BACKFILL_LIMIT)  # newest page
 last = self.checkpoints.get(chat_uid)
 if last is None:                                # first connect: anchor, replay nothing
     self._save_checkpoint(chat_uid, messages[0]["uid"])
