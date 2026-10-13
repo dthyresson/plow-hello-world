@@ -68,7 +68,6 @@ fetched 2026-10-13, so a `–` can mean "not advertised" as easily as "absent";
 | Marketplace for agents | ✓ Agent Index | – | – | – |
 | Your own image | ✓ pulled by digest | – | ✓ | ✓ |
 | Licensed / self-hosted | hosted; your image | commercial | commercial | ✓ MIT |
-
 | **THE PLATFORM CONTRACT** | | | | |
 | Who opens the connection | **the agent dials out** (one socket, no inbound) | n/a | **the platform posts to you** (bind a port) | Maritime's for the agent, Inkbox's webhooks for the door |
 | The thing you must implement | read `PLOW_API_BASE`, send the bearer, `CMD` is PID 1 | handle webhooks | `GET /health` → 200, `POST /chat` → reply within 30s, state under `/data` | both of the above |
