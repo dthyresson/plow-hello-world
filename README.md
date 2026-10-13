@@ -277,7 +277,17 @@ is something the owner said, not something the platform verified.
 ## Deploy it to Plow (hosted)
 
 The local stack is for development. A hosted agent runs on Plow, pulled by
-digest. Plow's VMs are amd64, and it pulls publicly, so:
+digest.
+
+**Plow runs your image; it does not host it.** The bytes live in the public
+registry you push to — GHCR, Docker Hub, Quay, whatever — and Plow keeps only the
+**digest** it was told to run. Three things follow mechanically, and they explain
+most deploy confusion: the package has to stay **public and pullable** (a private
+one means no agent at all), **a push deploys nothing** until you `deploy` again,
+and promoting a digest moves *new* provisioning while running agents keep the
+image they booted.
+
+Plow's VMs are amd64, and it pulls publicly, so:
 
 `YOUR_ACCOUNT` (and `YOUR_GITHUB_USERNAME`) is **your GitHub username or
 organization** — the namespace your image lives under on GHCR (GitHub Container
