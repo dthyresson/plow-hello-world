@@ -28,12 +28,18 @@ anywhere. The ids are provider-prefixed and drawn from a fixed allowlist (13 of
 them; `anthropic/claude-sonnet-5` is the default). The **agent** token carries
 `llm:chat` but not `llm:models`, so it can think but cannot enumerate the catalog.
 
-**Registry and dashboard.** Plow never builds or stores your image: it pulls
-`your/registry@sha256:…` from a **public** registry, by digest, because a tag
-names different bytes next week. What a new agent boots is a row in Plow's
-`agent_images` catalog; promoting a digest affects *new* provisioning, never a
-running agent. The dashboard (`app.plow.co`) is the control plane: credits and
-usage, lines, group trust, the payment limit, verbose output, the Latch link.
+**Registry and dashboard.** Plow **runs** your image but does not **host** it —
+and that split is the whole deployment model. The bytes live in a **public**
+registry you own (GHCR, Docker Hub, Quay), which Plow pulls anonymously and **by
+digest**, because a tag names different bytes next week. The running agent is
+Plow's: it provisions the VM, boots your container and serves the line, and it
+keeps only the **pin** (the `repo@sha256:…` reference, in its `agent_images`
+catalog) — never the bytes. So the consequences follow mechanically: make the
+package private and the pull fails, so no agent; push to the registry and nothing
+deploys; promote a digest and *new* provisioning moves while running agents keep
+the image they booted. The dashboard (`app.plow.co`) is the control plane:
+credits and usage, lines, group trust, the payment limit, verbose output, the
+Latch link.
 
 ## What you bring
 
