@@ -384,6 +384,69 @@ another and you need *that* provider's account and push token instead, not a
 GitHub one. To skip registries entirely, deploy a Plow-ready listing:
 `plow-agents deploy exe:hermes --line ln_xxx`.
 
+## Naming the agent
+
+An agent's `name` is set **once, at creation**, and cannot be changed afterwards:
+`OPTIONS /v1/agents/{uid}` answers `405` with `allow: GET` — the resource is
+read-only — and the CLI has no `rename`.
+
+Where the name comes from depends on how the agent was created:
+
+| created by | resulting `name` |
+|---|---|
+| `plow-agents mint`, or `deploy --local` | hardcoded **`plow-agent`** |
+| `plow-agents deploy exe:<slug>` | the slug |
+| `plow-agents deploy <registry>/<repo>@sha256:…` | the **image repository's** last path segment |
+
+So a custom name is reachable two ways: name the *image* (a hosted deploy of
+`ghcr.io/you/my-test-agent` yields an agent called `my-test-agent`), or create a
+self-hosted agent with the name you want — which is the same `POST /v1/agents`
+that `mint` makes, just with your own `name`.
+
+### Renaming a self-hosted agent
+
+There is no in-place rename, so it is a replacement: revoke, re-create with the
+name, rewrite the credential.
+
+```sh
+plow-agents revoke ln_xxx      # retires the agent -- and retires its chats on that line
+```
+
+```python
+# the call `mint` makes, with your name in place of "plow-agent"
+POST /v1/agents
+{"name": "my-test-agent", "provider": "self_hosted", "line_uid": "ln_xxx"}
+-> {"agent": {"uid": "…", "name": "my-test-agent"}, "token": "…"}
+```
+
+Then write `./plow-credentials` in the format `install_credential` uses (mode
+600, with the uid comment so `rotate`/`revoke` still work) and restart:
+
+```
+PLOW_API_BASE=https://api.plow.co
+PLOW_AGENT_TOKEN=<token>
+# plow-agent-uid: <uid>
+```
+
+```sh
+docker compose up -d --build
+```
+
+Two things to expect. The **chat on that line is retired with the old agent**
+(`revoke` says so), so text the line again to start a fresh one — the new agent
+boots to `chats: none yet` until you do. And the dashboard shows the new name
+immediately:
+
+```
+Plow Agents                                             1 agent
+  D  my-test-agent                        ● CONNECTED
+     Self-hosted · Willow · +15550100002 · Created today
+```
+
+Two names that are **not** the agent's, to avoid the confusion: the line's own
+name (`Willow`) is the pool line's `display_name` and is not settable, and
+`plow-agents profile --name` renames your *account*, not the agent.
+
 ## The wire contract
 
 Everything the agent talks to, in one place (from
@@ -733,6 +796,7 @@ the level needs the container recreated, which the `up -d` above does.
 | `denied` / `unauthorized` on `image push` | the token lacks `write:packages` — `gh auth refresh -s write:packages`, then log in to `ghcr.io` again |
 | Plow's pull fails; agent never reaches `running` | the GHCR package is still private — set it **Public** (see GHCR above) |
 | `deploy` rejects the image reference | deploy takes `repository@sha256:…`, not a `:tag` — paste the digest `image push` printed |
+| want a different agent name | names are set at creation and cannot be changed — see [Naming the agent](#naming-the-agent) |
 
 ## Rebuild after a code change
 
